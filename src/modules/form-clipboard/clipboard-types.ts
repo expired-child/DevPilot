@@ -51,6 +51,8 @@ export interface FormClipboardItem {
   fields: FormField[];
   variables?: Record<string, string>;
   uniqueFieldKeys?: string[];
+  /** 不参与粘贴的字段 key；预览与一键填充都会跳过，详情页可随时改。 */
+  excludedFieldKeys?: string[];
   pinned?: boolean;
   fingerprint: string;
 }

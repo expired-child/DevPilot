@@ -19,6 +19,8 @@ export interface FillPlanOptions {
   autoUnique?: boolean;
   /** 已使用过的值，用于避免自动去重时撞车。 */
   usedValues?: Iterable<string>;
+  /** 本次粘贴不填写的源字段 key，缺省使用 item.excludedFieldKeys。 */
+  excludedKeys?: Iterable<string>;
 }
 
 export interface FillPlan {
@@ -26,6 +28,8 @@ export interface FillPlan {
   assignments: FieldAssignment[];
   skipped: FillIssue[];
   missingVariables: string[];
+  /** 不参与本次粘贴的字段 key（被排除的字段仍保留在 diffs 中供预览展示）。 */
+  excludedKeys: string[];
 }
 
 const labelOf = (field: FormField): string => field.label || field.name || field.key;
@@ -63,12 +67,16 @@ export const buildFillPlan = (
   const overrides = options.overrides ?? {};
   const uniqueKeys = new Set(item.uniqueFieldKeys ?? []);
   const used = new Set(options.usedValues ?? []);
+  const excluded = new Set(options.excludedKeys ?? item.excludedFieldKeys ?? []);
 
   const values: Record<string, FormValue> = {};
   const missing = new Set<string>();
   const skipped: FillIssue[] = [];
 
   for (const field of item.fields) {
+    if (excluded.has(field.key)) {
+      continue;
+    }
     if (field.key in overrides) {
       values[field.key] = overrides[field.key];
       continue;
@@ -103,6 +111,9 @@ export const buildFillPlan = (
 
   const diffs = createDiff(matchFields(item.fields, targetFields), values, item.uniqueFieldKeys ?? []);
   const assignments = diffs.flatMap<FieldAssignment>((diff) => {
+    if (excluded.has(diff.source.key)) {
+      return [];
+    }
     if (!diff.target) {
       skipped.push({ label: labelOf(diff.source), reason: '未找到高置信度匹配字段' });
       return [];
@@ -120,5 +131,5 @@ export const buildFillPlan = (
     ];
   });
 
-  return { diffs, assignments, skipped, missingVariables: [...missing] };
+  return { diffs, assignments, skipped, missingVariables: [...missing], excludedKeys: [...excluded] };
 };

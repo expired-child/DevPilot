@@ -20,6 +20,16 @@ const relativeTime = (timestamp: number): string => {
   return `${Math.floor(minutes / 1_440)} 天前`;
 };
 
+const metaText = (item: FormClipboardItem): string => {
+  const excludedCount = item.excludedFieldKeys?.length ?? 0;
+  const parts = [`${item.fields.length} 个字段`];
+  if (excludedCount > 0) {
+    parts.push(`${item.fields.length - excludedCount} 项将粘贴`);
+  }
+  parts.push(relativeTime(item.updatedAt));
+  return parts.join(' · ');
+};
+
 function HistoryItem({ item, current, onPaste, onDetail }: { item: FormClipboardItem; current: boolean; onPaste(): void; onDetail(): void }) {
   return (
     <article className="history-item" onClick={onDetail}>
@@ -29,8 +39,8 @@ function HistoryItem({ item, current, onPaste, onDetail }: { item: FormClipboard
           {current && <span className="current-dot" title="当前剪贴板" />}
           <strong>{item.name}</strong>
         </div>
-        <div className="meta">{item.fields.length} 个字段 · {relativeTime(item.updatedAt)}</div>
-        <div className="host">{item.source.host}</div>
+        <div className="meta">{metaText(item)}</div>
+        <div className="host" title={item.source.title || item.source.url}>{item.source.title || item.source.host}</div>
       </div>
       <button className="small-button" onClick={(event) => { event.stopPropagation(); onPaste(); }}>粘贴</button>
     </article>
@@ -53,7 +63,7 @@ export function ClipboardPage({ state, onCopy, onPaste, onDetail, onClear }: Pro
         <span className="eyebrow">最近复制</span>
         {current ? (
           <div className="current-card">
-            <div><h2>{current.name}</h2><p>{current.fields.length} 个字段 · {relativeTime(current.updatedAt)}</p></div>
+            <div><h2>{current.name}</h2><p>{metaText(current)}</p>{current.source.title && current.source.title !== current.name && <p className="host">{current.source.title}</p>}</div>
             <button className="primary-button" onClick={() => onPaste(current)}>粘贴最近表单</button>
           </div>
         ) : (

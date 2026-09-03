@@ -70,8 +70,11 @@ h1, h2, p { margin: 0; }
 .fields-section { margin-top: 22px; }
 .field-list { display: grid; gap: 8px; margin-bottom: 10px; }
 .field-card { padding: 12px; border-radius: 13px; background: rgba(255,255,255,.75); }
+.field-card.excluded { opacity: .55; }
 .field-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; font-size: 12px; }
 .field-card-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.head-toggles { display: flex; align-items: center; gap: 8px; flex: none; }
+.include-toggle { display: flex; align-items: center; gap: 4px; flex: none; color: #5d6270; font-size: 10px; font-weight: 650; }
 .unique-toggle { display: flex; align-items: center; gap: 4px; flex: none; color: #80652d; font-size: 10px; }
 .field-card textarea { resize: vertical; padding: 8px 9px; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 11px; }
 .field-card small { display: block; overflow: hidden; margin-top: 6px; color: #9a9da4; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
@@ -84,19 +87,23 @@ h1, h2, p { margin: 0; }
 .input-section { display: grid; gap: 10px; margin-top: 20px; padding: 14px; border-radius: 15px; background: #fff; box-shadow: 0 5px 20px rgba(25,27,32,.045); }
 .inline-error { margin-top: 8px; padding: 9px 10px; border-radius: 9px; color: #a63e47; background: #f8e9ea; font-size: 11px; }
 .diff-section { margin-top: 20px; }
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 18px; }
+.stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin-bottom: 18px; }
 .stats div { padding: 9px 5px; border-radius: 11px; background: #eaeaE6; text-align: center; }
 .stats strong, .stats span { display: block; }
 .stats strong { font-size: 16px; }
 .stats span { margin-top: 2px; color: #858892; font-size: 9px; }
+.include-bar { display: flex; align-items: center; gap: 2px; margin-bottom: 8px; }
 .diff-list { display: grid; gap: 7px; }
 .diff-row { padding: 11px; border-left: 3px solid #b7bac1; border-radius: 10px; background: rgba(255,255,255,.8); }
 .diff-row.changed { border-left-color: #4778cd; }
 .diff-row.unique { border-left-color: #c68d24; }
 .diff-row.unmatched { border-left-color: #c5545d; }
+.diff-row.excluded { border-left-color: #b7bac1; opacity: .55; }
 .diff-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .diff-head strong { font-size: 11px; }
+.diff-head .head-meta { display: flex; align-items: center; gap: 8px; flex: none; }
 .diff-head span { color: #858892; font-size: 9px; }
+.field-label.excluded { opacity: .6; }
 .diff-values { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); gap: 6px; align-items: center; margin-top: 7px; font: 10px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .diff-values del, .diff-values ins { overflow: hidden; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
 .diff-values del { color: #9a6268; }
@@ -115,6 +122,7 @@ h1, h2, p { margin: 0; }
   body { background: #17181b; }
   .current-card, .empty-card, .detail-card, .preview-summary, .result-card, .input-section, .history-item, .field-card, .diff-row { background: #222428; }
   .secondary-button, .small-button, .icon-button, .search-box, .stats div { color: #e6e6e2; background: #2b2d32; }
+  .include-toggle { color: #b3b6bf; }
   .field-label input, .field-card textarea { color: #ededeb; background: #2c2e33; }
   .field-label input:focus, .field-card textarea:focus { background: #24262b; }
   .sticky-actions { border-top-color: rgba(255,255,255,.06); background: rgba(23,24,27,.92); }

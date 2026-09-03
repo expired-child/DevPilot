@@ -1,5 +1,6 @@
 import { getFieldAdapter } from '../adapters';
 import { findCustomSelectRoot } from '../adapters/custom-select-adapter';
+import { findDatePickerRoot } from '../adapters/date-picker-adapter';
 import { findSwitchRoot } from '../adapters/switch-adapter';
 import type {
   FieldType,
@@ -10,6 +11,7 @@ import {
   ARIA_RADIO_GROUP_SELECTOR,
   ARIA_TOGGLE_SELECTOR,
   CONTROL_COLLECT_SELECTOR,
+  DIALOG_SCOPE_SELECTOR,
   FORM_SCOPE_SELECTOR,
 } from './control-selectors';
 import { DefaultFieldFilter, type FieldFilter, type FormControlElement } from './field-filter';
@@ -56,6 +58,9 @@ const createSelector = (element: FormControlElement): string => {
 };
 
 const resolveType = (element: FormControlElement): FieldType => {
+  if (findDatePickerRoot(element) && element instanceof HTMLInputElement) {
+    return 'date';
+  }
   if (findCustomSelectRoot(element)) {
     return 'select';
   }
@@ -136,32 +141,93 @@ const isRadioChecked = (element: FormControlElement): boolean =>
 const scopePenalty = (scope: HTMLElement): number =>
   /search|filter|query|pagination/i.test(`${scope.id} ${scope.className}`) ? 100 : 0;
 
-const chooseScope = (filter: FieldFilter): HTMLElement => {
-  const candidates = [
-    ...document.querySelectorAll<HTMLElement>(FORM_SCOPE_SELECTOR),
-  ];
-  const unique = [...new Set(candidates)];
-  const ranked = unique
-    .map((scope) => ({
-      scope,
-      score:
-        collectFormControls(scope).filter((element) => filter.shouldInclude(element, { scope })).length * 10 -
-        scopePenalty(scope),
-    }))
+export interface RankedScope {
+  scope: HTMLElement;
+  score: number;
+}
+
+/** 弹窗作用域的加权：弹窗打开时用户操作的就是它，优先于背后页面里的表单。 */
+const DIALOG_SCOPE_BOOST = 2;
+
+/**
+ * 按候选作用域内的有效控件数打分排序：控件越多分越高，
+ * 命中弹窗容器的候选分数加倍，搜索/筛选类容器扣分。
+ */
+export const rankScopes = (candidates: HTMLElement[], filter: FieldFilter): RankedScope[] =>
+  candidates
+    .map((scope) => {
+      const controls = collectFormControls(scope).filter((element) => filter.shouldInclude(element, { scope })).length;
+      const score = controls * 10 - scopePenalty(scope);
+      return { scope, score: scope.matches(DIALOG_SCOPE_SELECTOR) ? score * DIALOG_SCOPE_BOOST : score };
+    })
     .sort((left, right) => right.score - left.score);
+
+const chooseScope = (filter: FieldFilter): HTMLElement => {
+  const candidates = [...new Set(document.querySelectorAll<HTMLElement>(FORM_SCOPE_SELECTOR))];
+  const ranked = rankScopes(candidates, filter);
   return ranked[0]?.score > 0 ? ranked[0].scope : document.body;
 };
 
-const suggestedName = (scope: HTMLElement, fields: FormField[]): string | undefined => {
+/** 表单可能所在的容器：命中后容器内的标题就是「这个表单」的名字（如 .ant-modal-title）。 */
+const FORM_CONTAINER_SELECTOR =
+  '[role="dialog"], dialog, dialog[open], [aria-modal="true"], .ant-modal, .ant-drawer-content, .el-dialog, .el-drawer, .arco-modal, [class*="modal" i], [class*="dialog" i], [class*="drawer" i], form, fieldset';
+
+const FORM_TITLE_SELECTOR = ['.ant-modal-title', '.el-dialog__title', '.ant-drawer-title', 'legend'].join(', ');
+
+const HEADING_LEVELS = ['h1', 'h2', 'h3', 'h4'] as const;
+
+const cleanTitle = (value?: string | null): string | undefined => {
+  const normalized = value?.replace(/\s+/g, ' ').trim();
+  return normalized || undefined;
+};
+
+const firstTitleText = (nodes: Iterable<HTMLElement>): string | undefined => {
+  for (const node of nodes) {
+    if (node.getAttribute('aria-hidden') === 'true' || node.checkVisibility?.() === false) {
+      continue;
+    }
+    const title = cleanTitle(node.textContent);
+    if (title) {
+      return title;
+    }
+  }
+  return undefined;
+};
+
+/**
+ * 命名优先级：所在弹窗/抽屉/表单容器的标题（精确到具体表单，如「诉前补充」）
+ * → 业务名称字段值 → 作用域内各级标题 → 页面标题。
+ * 容器标题与业务字段值同时存在时组合，如「编辑网关 · gateway-a」。
+ */
+export const suggestedName = (scope: HTMLElement, fields: FormField[]): string | undefined => {
+  const container = scope.closest<HTMLElement>(FORM_CONTAINER_SELECTOR);
+  const containerTitle =
+    firstTitleText(scope.querySelectorAll<HTMLElement>(FORM_TITLE_SELECTOR)) ??
+    firstTitleText(container?.querySelectorAll<HTMLElement>(FORM_TITLE_SELECTOR) ?? []);
+
   const obviousName = fields.find((field) => {
     const hint = `${field.name ?? ''} ${field.id ?? ''} ${field.label ?? ''}`;
     return /(^|\W)(name|title|gatewayName|routeName|serviceName)(\W|$)|名称/i.test(hint) && typeof field.value === 'string' && field.value.trim();
   });
-  if (typeof obviousName?.value === 'string') {
-    return obviousName.value.trim();
+  const obviousValue = typeof obviousName?.value === 'string' ? cleanTitle(obviousName.value) : undefined;
+
+  if (containerTitle || obviousValue) {
+    return containerTitle && obviousValue && containerTitle !== obviousValue
+      ? `${containerTitle} · ${obviousValue}`
+      : containerTitle ?? obviousValue;
   }
-  const heading = scope.querySelector<HTMLElement>('h1, h2, h3, [role="heading"], .ant-modal-title, .el-dialog__title');
-  return heading?.textContent?.trim() || document.title.trim() || undefined;
+
+  for (const level of HEADING_LEVELS) {
+    const heading = firstTitleText(scope.querySelectorAll<HTMLElement>(level));
+    if (heading) {
+      return heading;
+    }
+  }
+  return (
+    firstTitleText(scope.querySelectorAll<HTMLElement>('[role="heading"]')) ??
+    cleanTitle(document.title) ??
+    undefined
+  );
 };
 
 export const scanForm = (

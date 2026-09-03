@@ -150,6 +150,10 @@ export function App() {
             await service.setUniqueField(item.id, fieldKey, unique);
             await reload();
           }}
+          onExclude={async (fieldKey, excluded) => {
+            await service.setFieldExcluded(item.id, fieldKey, excluded);
+            await reload();
+          }}
           onSaveFields={async (fields: FormField[]) => {
             await service.saveFields(item.id, fields);
             await reload();

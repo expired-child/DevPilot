@@ -121,6 +121,18 @@ export class ClipboardService {
     await this.repository.save(state);
   }
 
+  async setFieldExcluded(id: string, fieldKey: string, excluded: boolean): Promise<void> {
+    await this.updateItem(id, (item) => {
+      const keys = new Set(item.excludedFieldKeys ?? []);
+      if (excluded) {
+        keys.add(fieldKey);
+      } else {
+        keys.delete(fieldKey);
+      }
+      return { ...item, excludedFieldKeys: [...keys] };
+    });
+  }
+
   private async updateItem(
     id: string,
     updater: (item: FormClipboardItem) => FormClipboardItem,
