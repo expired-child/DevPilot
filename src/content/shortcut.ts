@@ -19,6 +19,11 @@ export const resolvePageShortcut = (event: KeyboardShortcutLike): ShortcutAction
   return null;
 };
 
+/**
+ * 页面级 keydown 兜底：Chrome 命令未绑定或被占用时仍能触发复制/粘贴。
+ * 注意 content script 里无法访问 chrome.commands（不可查询绑定状态），
+ * 因此可能与命令通道同时触发，重复执行由 Service Worker 的 claimAction 去重窗口拦截。
+ */
 export const registerPageShortcuts = (onError: (message: string) => void): void => {
   window.addEventListener(
     'keydown',

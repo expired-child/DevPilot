@@ -10,7 +10,8 @@ export type FieldType =
   | 'textarea'
   | 'select'
   | 'checkbox'
-  | 'radio';
+  | 'radio'
+  | 'switch';
 
 export type FormValue = string | boolean | string[] | null;
 

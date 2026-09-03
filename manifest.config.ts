@@ -4,7 +4,7 @@ export default defineManifest({
   manifest_version: 3,
   name: 'DevPilot',
   description: '面向开发者的浏览器效率工具，首个模块为表单剪贴板。',
-  version: '0.1.5',
+  version: '0.1.7',
   minimum_chrome_version: '114',
   permissions: ['activeTab', 'contextMenus', 'sidePanel', 'storage'],
   action: {
@@ -36,7 +36,7 @@ export default defineManifest({
       suggested_key: {
         default: 'Alt+Shift+V',
       },
-      description: '预览并粘贴最近表单',
+      description: '一键粘贴最近表单到当前页',
     },
   },
 });

@@ -1,3 +1,5 @@
+import { CUSTOM_SELECT_INPUT_HOST_SELECTOR, VISUALLY_REPLACED_SELECTOR } from './control-selectors';
+
 export type FormControlElement = HTMLElement;
 
 export interface ScanContext {
@@ -28,9 +30,7 @@ const isVisible = (element: FormControlElement): boolean => {
     return false;
   }
   const style = getComputedStyle(element);
-  const visuallyReplacedControl = element.closest(
-    'label, .ant-select, .el-select, .MuiAutocomplete-root, .MuiSelect-root, .mat-mdc-select, .mat-select, .n-select, .arco-select, .p-dropdown, .p-select, [role="combobox"], [role="checkbox"], [role="radio"], [class*="checkbox" i], [class*="radio" i]',
-  );
+  const visuallyReplacedControl = element.closest(VISUALLY_REPLACED_SELECTOR);
   return (
     style.display !== 'none' &&
     style.visibility !== 'hidden' &&
@@ -46,11 +46,7 @@ export class DefaultFieldFilter implements FieldFilter {
 
     if (element instanceof HTMLInputElement) {
       const ignoredTypes = new Set(['hidden', 'password', 'file', 'button', 'submit', 'reset', 'image']);
-      const customSelectInput = Boolean(
-        element.closest(
-          '.ant-select, .el-select, .MuiAutocomplete-root, .MuiSelect-root, .mat-mdc-select, .mat-select, .n-select, .arco-select, .p-dropdown, .p-select, [role="combobox"]',
-        ),
-      );
+      const customSelectInput = Boolean(element.closest(CUSTOM_SELECT_INPUT_HOST_SELECTOR));
       if (ignoredTypes.has(element.type) || (element.type === 'search' && !customSelectInput)) {
         return false;
       }

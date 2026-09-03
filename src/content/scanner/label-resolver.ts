@@ -1,3 +1,4 @@
+import { FIELD_CONTAINER_SELECTOR } from './control-selectors';
 import type { FormControlElement } from './field-filter';
 
 const clean = (value?: string | null): string | undefined => {
@@ -35,9 +36,7 @@ export const resolveLabel = (element: FormControlElement): string | undefined =>
     }
   }
 
-  const item = element.closest<HTMLElement>(
-    '.form-item, .ant-form-item, .el-form-item, [class*="formItem"], [class*="field"]',
-  );
+  const item = element.closest<HTMLElement>(FIELD_CONTAINER_SELECTOR);
   const nearby = item?.querySelector<HTMLElement>('label, [class*="label"], .ant-form-item-label');
   return clean(nearby?.textContent);
 };

@@ -3,8 +3,12 @@ import type { FieldMatch, FieldType, FormField } from '../../modules/form-clipbo
 const MATCH_THRESHOLD = 80;
 const textTypes = new Set<FieldType>(['text', 'email', 'url', 'tel']);
 
+const booleanTypes = new Set<FieldType>(['checkbox', 'switch']);
+
 const compatibleType = (left: FieldType, right: FieldType): boolean =>
-  left === right || (textTypes.has(left) && textTypes.has(right));
+  left === right ||
+  (textTypes.has(left) && textTypes.has(right)) ||
+  (booleanTypes.has(left) && booleanTypes.has(right));
 
 const normalized = (value?: string): string => value?.trim().replace(/\s+/g, ' ') ?? '';
 

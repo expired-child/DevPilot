@@ -1,10 +1,17 @@
 import { getFieldAdapter } from '../adapters';
 import { findCustomSelectRoot } from '../adapters/custom-select-adapter';
+import { findSwitchRoot } from '../adapters/switch-adapter';
 import type {
   FieldType,
   FormField,
   FormScanResult,
 } from '../../modules/form-clipboard/clipboard-types';
+import {
+  ARIA_RADIO_GROUP_SELECTOR,
+  ARIA_TOGGLE_SELECTOR,
+  CONTROL_COLLECT_SELECTOR,
+  FORM_SCOPE_SELECTOR,
+} from './control-selectors';
 import { DefaultFieldFilter, type FieldFilter, type FormControlElement } from './field-filter';
 import { resolveLabel } from './label-resolver';
 
@@ -52,6 +59,13 @@ const resolveType = (element: FormControlElement): FieldType => {
   if (findCustomSelectRoot(element)) {
     return 'select';
   }
+  if (findSwitchRoot(element)) {
+    return 'switch';
+  }
+  const ariaRole = element.getAttribute('role');
+  if (ariaRole === 'checkbox' || ariaRole === 'radio') {
+    return ariaRole;
+  }
   if (element instanceof HTMLTextAreaElement) {
     return 'textarea';
   }
@@ -79,20 +93,52 @@ const fieldKey = (field: Omit<FormField, 'key'>): string => {
 
 export const collectFormControls = (scope: ParentNode): FormControlElement[] =>
   [
-    ...scope.querySelectorAll<FormControlElement>(
-      'input, textarea, select, .ant-select, .el-select, .MuiAutocomplete-root, .MuiSelect-root, .mat-mdc-select, .mat-select, .n-select, .arco-select, .p-dropdown, .p-select, [class*="react-select__control"], [role="combobox"]',
-    ),
+    ...scope.querySelectorAll<FormControlElement>(CONTROL_COLLECT_SELECTOR),
   ].filter((element) => {
     const customRoot = findCustomSelectRoot(element);
-    return !customRoot || customRoot === element || !scope.contains(customRoot);
+    if (customRoot && customRoot !== element && scope.contains(customRoot)) {
+      return false;
+    }
+    const switchRoot = findSwitchRoot(element);
+    if (switchRoot && switchRoot !== element && scope.contains(switchRoot)) {
+      return false;
+    }
+    // 嵌套的 ARIA 控件只保留最外层（从父级开始找，元素自身不会被自身匹配）。
+    const ariaRoot = element.parentElement?.closest<HTMLElement>(ARIA_TOGGLE_SELECTOR) ?? null;
+    return !ariaRoot || !scope.contains(ariaRoot);
   });
+
+const isRadioLike = (element: FormControlElement): boolean =>
+  (element instanceof HTMLInputElement && element.type === 'radio') || element.getAttribute('role') === 'radio';
+
+/** 单选组标识：原生 radio 以 name/id 为准（HTML 语义），ARIA radio 以 radiogroup 容器为准。 */
+const radioGroupKey = (element: FormControlElement): string => {
+  if (element instanceof HTMLInputElement) {
+    return element.name || element.id || createSelector(element);
+  }
+  const group = element.closest<HTMLElement>(ARIA_RADIO_GROUP_SELECTOR);
+  if (group) {
+    return `group:${
+      group.getAttribute('name') ??
+      group.getAttribute('aria-label') ??
+      group.getAttribute('aria-labelledby') ??
+      createSelector(group)
+    }`;
+  }
+  return `aria:${element.getAttribute('aria-labelledby') ?? element.getAttribute('name') ?? createSelector(element)}`;
+};
+
+const isRadioChecked = (element: FormControlElement): boolean =>
+  element instanceof HTMLInputElement
+    ? element.checked
+    : element.getAttribute('aria-checked') === 'true' || element.getAttribute('data-state') === 'checked';
 
 const scopePenalty = (scope: HTMLElement): number =>
   /search|filter|query|pagination/i.test(`${scope.id} ${scope.className}`) ? 100 : 0;
 
 const chooseScope = (filter: FieldFilter): HTMLElement => {
   const candidates = [
-    ...document.querySelectorAll<HTMLElement>('form, [role="dialog"], main, .ant-form, .el-form, [class*="form"]'),
+    ...document.querySelectorAll<HTMLElement>(FORM_SCOPE_SELECTOR),
   ];
   const unique = [...new Set(candidates)];
   const ranked = unique
@@ -128,17 +174,14 @@ export const scanForm = (
   const elements = collectFormControls(scope).filter((element) => filter.shouldInclude(element, { scope }));
   const seenRadioGroups = new Set<string>();
   const initial = elements.flatMap<ScannedField>((element) => {
-    if (element instanceof HTMLInputElement && element.type === 'radio') {
-      const group = element.name || element.id || createSelector(element);
+    if (isRadioLike(element)) {
+      const group = radioGroupKey(element);
       if (seenRadioGroups.has(group)) {
         return [];
       }
       seenRadioGroups.add(group);
-      const radios = elements.filter(
-        (candidate): candidate is HTMLInputElement =>
-          candidate instanceof HTMLInputElement && candidate.type === 'radio' && (candidate.name || candidate.id) === group,
-      );
-      element = radios.find((radio) => radio.checked) ?? element;
+      const radios = elements.filter((candidate) => isRadioLike(candidate) && radioGroupKey(candidate) === group);
+      element = radios.find(isRadioChecked) ?? element;
     }
 
     const adapter = getFieldAdapter(element);
@@ -159,7 +202,8 @@ export const scanForm = (
       disabled:
         element.hasAttribute('disabled') ||
         element.getAttribute('aria-disabled') === 'true' ||
-        /(?:^|\s)(?:ant|el)-select-disabled(?:\s|$)/.test(element.className),
+        /(?:^|\s)(?:ant|el)-select-disabled(?:\s|$)/.test(element.className) ||
+        /(?:^|\s)(?:is-disabled|[\w-]+--?disabled)(?:\s|$)/.test(element.className),
       metadata: {
         tag: element.tagName.toLowerCase(),
         role: element.getAttribute('role') ?? '',

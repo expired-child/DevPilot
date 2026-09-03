@@ -1,5 +1,3 @@
-export const PENDING_PASTE_KEY = 'devpilotPendingPasteItemId';
-
 export const COMMANDS = {
   copy: 'copy-current-form',
   paste: 'paste-latest-form',

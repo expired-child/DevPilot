@@ -17,7 +17,7 @@ npm run build
 ## 快捷键
 
 - `Alt + Shift + C`：复制当前表单
-- `Alt + Shift + V`：打开 Side Panel 并预览最近表单
+- `Alt + Shift + V`：一键把最近复制的表单填充到当前页（不打开面板，页内 toast 汇总结果；唯一字段自动追加 `-2`/`-3` 后缀避免重复）
 
 快捷键冲突时可在 `chrome://extensions/shortcuts` 修改。
 

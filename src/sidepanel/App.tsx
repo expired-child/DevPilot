@@ -1,23 +1,21 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import { matchFields } from '../content/matcher/field-matcher';
 import { ChromeClipboardRepository, STORAGE_KEY } from '../modules/form-clipboard/clipboard-repository';
 import { ClipboardService } from '../modules/form-clipboard/clipboard-service';
 import type {
   FieldAssignment,
-  FieldMatch,
+  FillIssue,
   FillReport,
   FormClipboardItem,
   FormClipboardState,
   FormField,
 } from '../modules/form-clipboard/clipboard-types';
-import { PENDING_PASTE_KEY } from '../shared/constants';
 import { getActiveTab, scanActiveTab, sendToTab } from '../shared/messaging/tab-messaging';
 import { ClipboardDetailPage } from './pages/ClipboardDetailPage';
 import { ClipboardPage } from './pages/ClipboardPage';
 import { PastePreviewPage } from './pages/PastePreviewPage';
 
-type View = { page: 'list' } | { page: 'detail'; itemId: string } | { page: 'preview'; itemId: string; matches: FieldMatch[]; targetTitle?: string };
+type View = { page: 'list' } | { page: 'detail'; itemId: string } | { page: 'preview'; itemId: string; targetFields: FormField[]; targetTitle?: string };
 
 const repository = new ChromeClipboardRepository();
 const service = new ClipboardService(repository);
@@ -51,7 +49,7 @@ export function App() {
       setView({
         page: 'preview',
         itemId: item.id,
-        matches: matchFields(item.fields, target.fields),
+        targetFields: target.fields,
         targetTitle: target.source.title,
       });
       setNotice(null);
@@ -61,21 +59,14 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    void service.getState().then(async (loaded) => {
-      setState(loaded);
-      const pending = (await chrome.storage.session.get(PENDING_PASTE_KEY))[PENDING_PASTE_KEY] as string | undefined;
-      if (!pending) return;
-      await chrome.storage.session.remove(PENDING_PASTE_KEY);
-      const item = loaded.history.find((entry) => entry.id === pending);
-      if (item) await startPaste(item);
-    });
+    void service.getState().then(setState);
 
     const handleStorage = (changes: Record<string, chrome.storage.StorageChange>, area: string): void => {
       if (area === 'local' && changes[STORAGE_KEY]) void reload();
     };
     chrome.storage.onChanged.addListener(handleStorage);
     return () => chrome.storage.onChanged.removeListener(handleStorage);
-  }, [reload, startPaste]);
+  }, [reload]);
 
   useEffect(() => {
     if (!notice) return;
@@ -104,18 +95,15 @@ export function App() {
     }
   };
 
-  const confirmFill = async (assignments: FieldAssignment[], unmatchedLabels: string[]): Promise<FillReport | null> => {
+  const confirmFill = async (assignments: FieldAssignment[], skipped: FillIssue[]): Promise<FillReport | null> => {
     try {
       const tab = await getActiveTab();
       const response = await sendToTab(tab.id!, { type: 'APPLY_FIELDS', assignments });
       if (!response.ok || !('report' in response)) throw new Error(response.ok ? '未获取到填充结果' : response.error);
       const report: FillReport = {
         ...response.report,
-        skipped: response.report.skipped + unmatchedLabels.length,
-        issues: [
-          ...response.report.issues,
-          ...unmatchedLabels.map((label) => ({ label, reason: '未找到高置信度匹配字段' })),
-        ],
+        skipped: response.report.skipped + skipped.length,
+        issues: [...response.report.issues, ...skipped],
       };
       setNotice({ tone: report.failed ? 'error' : 'success', text: `填充完成：成功 ${report.success}，跳过 ${report.skipped}，失败 ${report.failed}` });
       return report;
@@ -172,7 +160,7 @@ export function App() {
       {view.page === 'preview' && item && (
         <PastePreviewPage
           item={item}
-          matches={view.matches}
+          targetFields={view.targetFields}
           targetTitle={view.targetTitle}
           onBack={() => setView({ page: 'list' })}
           onConfirm={confirmFill}
