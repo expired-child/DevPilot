@@ -2,7 +2,6 @@ import type { FormValue } from '../../modules/form-clipboard/clipboard-types';
 import { DATE_PICKER_ROOT_SELECTOR } from '../scanner/control-selectors';
 import type { FormControlElement } from '../scanner/field-filter';
 import { dispatchValueEvents, setNativeValue, type FieldAdapter } from './field-adapter';
-import { readReactValue } from './react-props';
 
 export const findDatePickerRoot = (element: HTMLElement): HTMLElement | null =>
   element.closest<HTMLElement>(DATE_PICKER_ROOT_SELECTOR);
@@ -18,7 +17,7 @@ export class DatePickerAdapter implements FieldAdapter {
 
   getValue(element: FormControlElement): FormValue {
     const input = element as HTMLInputElement;
-    return input.value || readReactValue(element) || '';
+    return input.value;
   }
 
   async setValue(element: FormControlElement, value: FormValue): Promise<void> {

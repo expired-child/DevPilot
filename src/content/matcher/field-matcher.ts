@@ -51,7 +51,11 @@ export const matchFields = (sources: FormField[], targets: FormField[]): FieldMa
     const best = ranked[0];
     const ambiguous = best && ranked[1]?.score === best.score;
 
-    if (!best || best.score < MATCH_THRESHOLD || ambiguous) {
+    // 无语义标识的控件只能依赖唯一结构路径；同类型且路径唯一命中才允许回填。
+    const structuralMatch = best && source.key.startsWith('selector:') &&
+      best.target.key.startsWith('selector:') && source.type === best.target.type &&
+      Boolean(source.selector) && source.selector === best.target.selector;
+    if (!best || (best.score < MATCH_THRESHOLD && !structuralMatch) || ambiguous) {
       return { source, score: best?.score ?? 0, reasons: best?.reasons ?? [] };
     }
 

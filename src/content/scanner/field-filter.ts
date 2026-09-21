@@ -1,5 +1,6 @@
 import { CUSTOM_SELECT_INPUT_HOST_SELECTOR, VISUALLY_REPLACED_SELECTOR } from './control-selectors';
 import { resolveLabel } from './label-resolver';
+import { isRendered } from './visibility';
 
 export type FormControlElement = HTMLElement;
 
@@ -41,7 +42,7 @@ const isVisible = (element: FormControlElement): boolean => {
     return false;
   }
   const style = getComputedStyle(element);
-  const visuallyReplacedControl = element.closest(VISUALLY_REPLACED_SELECTOR);
+  const visuallyReplacedControl = element.closest<HTMLElement>(VISUALLY_REPLACED_SELECTOR);
   if (
     style.display === 'none' ||
     style.visibility === 'hidden' ||
@@ -52,16 +53,10 @@ const isVisible = (element: FormControlElement): boolean => {
   // display:none 子树内元素的计算样式仍是自身原值（display 不可继承），
   // 必须确认真的渲染出了盒子，否则隐藏页签/隐藏路由里的控件会混进扫描结果。
   // 被框架视觉替换的原生控件（自定义下拉/复选框内部）尺寸恒为 0，属正常形态。
-  if (visuallyReplacedControl) {
-    return true;
-  }
-  if (typeof element.checkVisibility === 'function') {
-    return element.checkVisibility();
-  }
-  if (typeof element.getClientRects === 'function') {
-    return element.getClientRects().length > 0;
-  }
-  return element.offsetWidth > 0 || element.offsetHeight > 0;
+  return isRendered(element) || Boolean(
+    visuallyReplacedControl && visuallyReplacedControl !== element && isRendered(visuallyReplacedControl) &&
+    element.parentElement && isRendered(element.parentElement),
+  );
 };
 
 /**

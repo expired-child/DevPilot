@@ -4,6 +4,7 @@ import type { FieldAssignment, FillReport, FormValue } from '../modules/form-cli
 
 /** 每次重扫的间隔：足够 React 完成一次联动渲染，又不至于让用户感到卡顿。 */
 const RETRY_INTERVAL_MS = 100;
+const SETTLE_MS = 50;
 
 /**
  * 整个填充过程为「等待条件渲染」预留的总时长。
@@ -50,10 +51,12 @@ interface WaitBudget {
  */
 const findTarget = async (
   key: string,
-  byKey: Map<string, ScannedField>,
+  scope: HTMLElement,
   budget: WaitBudget,
 ): Promise<ScannedField | undefined> => {
-  const existing = byKey.get(key);
+  const rescan = (): ScannedField | undefined =>
+    indexControls(scanForm(document, undefined, scope).controls).get(key);
+  const existing = rescan();
   if (existing) {
     return existing;
   }
@@ -63,15 +66,7 @@ const findTarget = async (
     await wait(sleep);
     budget.remainingMs -= sleep;
 
-    // 重扫结果整体合并：联动渲染往往一次带出多个新字段，后续字段就不必再等一轮。
-    const rescanned = indexControls(scanForm().controls);
-    rescanned.forEach((entry, entryKey) => {
-      if (!byKey.has(entryKey)) {
-        byKey.set(entryKey, entry);
-      }
-    });
-
-    const found = byKey.get(key);
+    const found = rescan();
     if (found) {
       return found;
     }
@@ -81,12 +76,14 @@ const findTarget = async (
 };
 
 export const applyFields = async (assignments: FieldAssignment[]): Promise<FillReport> => {
-  const byKey = indexControls(scanForm().controls);
+  // 整次填充锁定表单；控件失焦或下拉弹出后不能转而扫描其他表单。
+  const { scope } = scanForm();
   const report: FillReport = { success: 0, skipped: 0, failed: 0, issues: [] };
   const budget: WaitBudget = { remainingMs: RETRY_BUDGET_MS };
+  const applied: FieldAssignment[] = [];
 
   for (const assignment of assignments) {
-    const target = await findTarget(assignment.targetKey, byKey, budget);
+    const target = await findTarget(assignment.targetKey, scope, budget);
 
     if (!target) {
       report.skipped += 1;
@@ -111,16 +108,32 @@ export const applyFields = async (assignments: FieldAssignment[]): Promise<FillR
 
     try {
       await adapter.setValue(target.element, assignment.value);
-      if (!sameValue(adapter.getValue(target.element), assignment.value)) {
+      await wait(SETTLE_MS);
+      const current = await findTarget(assignment.targetKey, scope, budget);
+      const currentAdapter = current && getFieldAdapter(current.element);
+      if (!current || !currentAdapter || !sameValue(currentAdapter.getValue(current.element), assignment.value)) {
         throw new Error('控件未接受新值');
       }
       report.success += 1;
+      applied.push(assignment);
     } catch (error) {
       report.failed += 1;
       report.issues.push({
         label: assignment.label,
         reason: error instanceof Error ? error.message : '填充失败',
       });
+    }
+  }
+
+  // 后续字段的联动也可能清空之前已填的值，最终以当前页面回读为准。
+  const finalControls = indexControls(scanForm(document, undefined, scope).controls);
+  for (const assignment of applied) {
+    const current = finalControls.get(assignment.targetKey);
+    const adapter = current && getFieldAdapter(current.element);
+    if (!current || !adapter || !sameValue(adapter.getValue(current.element), assignment.value)) {
+      report.success -= 1;
+      report.failed += 1;
+      report.issues.push({ label: assignment.label, reason: '字段值被页面联动重置或字段已移除' });
     }
   }
 

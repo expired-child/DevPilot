@@ -1,5 +1,7 @@
 node_modules/
 dist/
 coverage/
+tests/__screenshots__/
+.vitest-attachments/
 graphify-out/
 *.log

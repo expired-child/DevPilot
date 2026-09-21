@@ -17,5 +17,5 @@
     "jsx": "react-jsx",
     "types": ["chrome", "vitest/globals"]
   },
-  "include": ["src", "tests", "manifest.config.ts", "vite.config.ts", "eslint.config.js"]
+  "include": ["src", "tests", "manifest.config.ts", "vite.config.ts", "vitest.config.ts", "eslint.config.js"]
 }

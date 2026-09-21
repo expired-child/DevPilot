@@ -16,6 +16,7 @@ import {
 } from './control-selectors';
 import { DefaultFieldFilter, type FieldFilter, type FormControlElement } from './field-filter';
 import { resolveLabel } from './label-resolver';
+import { isRendered } from './visibility';
 
 export interface ScannedField {
   field: FormField;
@@ -25,27 +26,30 @@ export interface ScannedField {
 export interface ScannedForm {
   result: FormScanResult;
   controls: ScannedField[];
+  scope: HTMLElement;
 }
 
 const selectorText = (value: string): string => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 
 const createSelector = (element: FormControlElement): string => {
-  if (element.id) {
+  const unique = (selector: string): boolean => element.ownerDocument.querySelectorAll(selector).length === 1;
+  if (element.id && unique(`#${CSS.escape(element.id)}`)) {
     return `#${CSS.escape(element.id)}`;
   }
   const name = element.getAttribute('name');
   if (name) {
     const type = element instanceof HTMLInputElement ? `[type="${selectorText(element.type)}"]` : '';
-    return `${element.tagName.toLowerCase()}${type}[name="${selectorText(name)}"]`;
+    const selector = `${element.tagName.toLowerCase()}${type}[name="${selectorText(name)}"]`;
+    if (unique(selector)) return selector;
   }
   const testId = element.getAttribute('data-testid');
-  if (testId) {
+  if (testId && unique(`[data-testid="${selectorText(testId)}"]`)) {
     return `[data-testid="${selectorText(testId)}"]`;
   }
 
   const parts: string[] = [];
   let current: Element | null = element;
-  while (current && current !== document.body && parts.length < 4) {
+  while (current && current !== element.ownerDocument.body) {
     const tag = current.tagName.toLowerCase();
     const siblings = current.parentElement
       ? [...current.parentElement.children].filter((child) => child.tagName === current?.tagName)
@@ -54,7 +58,7 @@ const createSelector = (element: FormControlElement): string => {
     parts.unshift(`${tag}:nth-of-type(${Math.max(position, 1)})`);
     current = current.parentElement;
   }
-  return parts.join(' > ');
+  return `body > ${parts.join(' > ')}`;
 };
 
 const resolveType = (element: FormControlElement): FieldType => {
@@ -96,12 +100,12 @@ const fieldKey = (field: Omit<FormField, 'key'>): string => {
   return `selector:${field.selector ?? ''}`;
 };
 
-export const collectFormControls = (scope: ParentNode): FormControlElement[] =>
-  [
-    ...scope.querySelectorAll<FormControlElement>(CONTROL_COLLECT_SELECTOR),
-  ].filter((element) => {
+export const collectFormControls = (scope: ParentNode): FormControlElement[] => {
+  const candidates = [...scope.querySelectorAll<FormControlElement>(CONTROL_COLLECT_SELECTOR)];
+  const collected = new Set(candidates);
+  return candidates.filter((element) => {
     const customRoot = findCustomSelectRoot(element);
-    if (customRoot && customRoot !== element && scope.contains(customRoot)) {
+    if (customRoot && customRoot !== element && collected.has(customRoot)) {
       return false;
     }
     const switchRoot = findSwitchRoot(element);
@@ -112,6 +116,7 @@ export const collectFormControls = (scope: ParentNode): FormControlElement[] =>
     const ariaRoot = element.parentElement?.closest<HTMLElement>(ARIA_TOGGLE_SELECTOR) ?? null;
     return !ariaRoot || !scope.contains(ariaRoot);
   });
+};
 
 const isRadioLike = (element: FormControlElement): boolean =>
   (element instanceof HTMLInputElement && element.type === 'radio') || element.getAttribute('role') === 'radio';
@@ -163,7 +168,23 @@ export const rankScopes = (candidates: HTMLElement[], filter: FieldFilter): Rank
     .sort((left, right) => right.score - left.score);
 
 const chooseScope = (filter: FieldFilter): HTMLElement => {
-  const candidates = [...new Set(document.querySelectorAll<HTMLElement>(FORM_SCOPE_SELECTOR))];
+  const candidates = [...new Set(document.querySelectorAll<HTMLElement>(FORM_SCOPE_SELECTOR))].filter(isRendered);
+  // 弹窗是操作边界，不能用字段数量与背景页面竞争；无可复制字段时也不能退回背景。
+  const dialogs = candidates.filter((scope) => scope.matches(DIALOG_SCOPE_SELECTOR) && (
+    scope.matches('[role="dialog"], dialog[open], [aria-modal="true"]') ||
+    scope.querySelector(CONTROL_COLLECT_SELECTOR)
+  ));
+  const active = document.activeElement;
+  const focusedDialogs = dialogs.filter((scope) => active && scope.contains(active));
+  if (dialogs.length > 0) {
+    return rankScopes(focusedDialogs.length ? focusedDialogs : dialogs, filter)[0].scope;
+  }
+  const focusedForm = active?.closest<HTMLElement>('form, .ant-form, .el-form');
+  if (focusedForm && isRendered(focusedForm)) return focusedForm;
+  // main 等公共容器不能把多个独立表单合并为一次复制。
+  const forms = candidates.filter((scope) => scope.matches('form, .ant-form, .el-form'));
+  const rankedForms = rankScopes(forms, filter);
+  if (rankedForms[0]?.score > 0) return rankedForms[0].scope;
   const ranked = rankScopes(candidates, filter);
   return ranked[0]?.score > 0 ? ranked[0].scope : document.body;
 };
@@ -233,10 +254,11 @@ export const suggestedName = (scope: HTMLElement, fields: FormField[]): string |
 export const scanForm = (
   doc: Document = document,
   filter: FieldFilter = new DefaultFieldFilter(),
+  fixedScope?: HTMLElement,
 ): ScannedForm => {
   // doc 参数用于后续测试和 iframe 扩展；当前内容脚本始终处理所属 document。
   void doc;
-  const scope = chooseScope(filter);
+  const scope = fixedScope ?? chooseScope(filter);
   const elements = collectFormControls(scope).filter((element) => filter.shouldInclude(element, { scope }));
   const seenRadioGroups = new Set<string>();
   const initial = elements.flatMap<ScannedField>((element) => {
@@ -266,7 +288,7 @@ export const scanForm = (
       value: adapter.getValue(element),
       required: element.hasAttribute('required') || element.getAttribute('aria-required') === 'true',
       disabled:
-        element.hasAttribute('disabled') ||
+        element.matches(':disabled') || element.hasAttribute('disabled') ||
         element.getAttribute('aria-disabled') === 'true' ||
         /(?:^|\s)(?:ant|el)-select-disabled(?:\s|$)/.test(element.className) ||
         /(?:^|\s)(?:is-disabled|[\w-]+--?disabled)(?:\s|$)/.test(element.className),
@@ -292,6 +314,7 @@ export const scanForm = (
   const fields = scanned.map(({ field }) => field);
 
   return {
+    scope,
     controls: scanned,
     result: {
       suggestedName: suggestedName(scope, fields),
