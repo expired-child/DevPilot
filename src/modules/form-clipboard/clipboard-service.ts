@@ -4,8 +4,10 @@ import type {
   FormClipboardState,
   FormField,
   FormScanResult,
+  ReplacementRule,
 } from './clipboard-types';
 import { createFingerprint } from './fingerprint';
+import { validateReplacementRules } from './replacement-service';
 
 const ruleKey = (host: string, fieldKey: string): string => `${host}::${fieldKey}`;
 
@@ -96,6 +98,10 @@ export class ClipboardService {
   }
 
   async saveFields(id: string, fields: FormField[]): Promise<void> {
+    for (const field of fields) {
+      const error = validateReplacementRules(field.replacementRules);
+      if (error) throw new Error(`${field.label || field.name || field.key}：${error}`);
+    }
     await this.updateItem(id, (item) => ({
       ...item,
       fields,
@@ -131,6 +137,20 @@ export class ClipboardService {
       }
       return { ...item, excludedFieldKeys: [...keys] };
     });
+  }
+
+  async setReplacementEnabled(enabled: boolean): Promise<void> {
+    const state = await this.repository.get();
+    state.settings.replacementEnabled = enabled;
+    await this.repository.save(state);
+  }
+
+  async saveReplacementRules(rules: ReplacementRule[]): Promise<void> {
+    const error = validateReplacementRules(rules);
+    if (error) throw new Error(error);
+    const state = await this.repository.get();
+    state.settings.replacementRules = rules;
+    await this.repository.save(state);
   }
 
   private async updateItem(

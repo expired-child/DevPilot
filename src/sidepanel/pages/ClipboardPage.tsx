@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 
 import { searchHistory } from '../../modules/form-clipboard/clipboard-service';
-import type { FormClipboardItem, FormClipboardState } from '../../modules/form-clipboard/clipboard-types';
+import type { FormClipboardItem, FormClipboardState, ReplacementRule } from '../../modules/form-clipboard/clipboard-types';
+import { GlobalReplacementSettings } from './GlobalReplacementSettings';
 
 interface Props {
   state: FormClipboardState;
@@ -9,6 +10,9 @@ interface Props {
   onPaste(item: FormClipboardItem): void;
   onDetail(item: FormClipboardItem): void;
   onClear(): Promise<void>;
+  replacementPending: boolean;
+  onReplacementToggle(enabled: boolean): Promise<void>;
+  onSaveReplacementRules(rules: ReplacementRule[]): Promise<void>;
 }
 
 const relativeTime = (timestamp: number): string => {
@@ -47,7 +51,7 @@ function HistoryItem({ item, current, onPaste, onDetail }: { item: FormClipboard
   );
 }
 
-export function ClipboardPage({ state, onCopy, onPaste, onDetail, onClear }: Props) {
+export function ClipboardPage({ state, onCopy, onPaste, onDetail, onClear, replacementPending, onReplacementToggle, onSaveReplacementRules }: Props) {
   const [query, setQuery] = useState('');
   const current = state.history.find((item) => item.id === state.currentId);
   const results = useMemo(() => searchHistory(state.history, query), [state.history, query]);
@@ -58,6 +62,8 @@ export function ClipboardPage({ state, onCopy, onPaste, onDetail, onClear }: Pro
         <div className="brand-mark">D</div>
         <div><h1>DevPilot</h1><p>Form Clipboard</p></div>
       </header>
+
+      <GlobalReplacementSettings settings={state.settings} togglePending={replacementPending} onToggle={onReplacementToggle} onSave={onSaveReplacementRules} />
 
       <section className="current-section">
         <span className="eyebrow">最近复制</span>

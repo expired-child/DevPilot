@@ -80,6 +80,24 @@ h1, h2, p { margin: 0; }
 .field-card small { display: block; overflow: hidden; margin-top: 6px; color: #9a9da4; text-overflow: ellipsis; white-space: nowrap; font-size: 9px; }
 .value-preview { overflow: hidden; color: #565a64; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 
+.replacement-editor { margin-top: 10px; border-top: 1px solid #8883; padding-top: 9px; }
+.global-replacement { margin-bottom: 22px; padding: 14px; border-radius: 15px; background: #fff; box-shadow: 0 5px 20px rgba(25,27,32,.045); }
+.global-replacement .section-heading { gap: 8px; }
+.replacement-toggle { display: flex; align-items: center; gap: 5px; font-size: 12px; cursor: pointer; white-space: nowrap; }
+.replacement-toggle input { accent-color: #2d8e63; }
+.replacement-settings-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+.replacement-settings-fields textarea { width: 100%; resize: vertical; padding: 8px; border: 0; border-radius: 8px; color: inherit; background: #f0f0ee; font: 11px/1.5 ui-monospace, SFMono-Regular, Consolas, monospace; }
+.replacement-sample { margin-top: 12px; font-size: 11px; }
+.replacement-sample summary { cursor: pointer; margin-bottom: 8px; }
+.replacement-editor summary { cursor: pointer; font-size: 11px; font-weight: 650; }
+.replacement-help { margin: 9px 0; color: #858892; font-size: 11px; line-height: 1.6; }
+.replacement-rule { display: grid; gap: 8px; margin-bottom: 10px; padding: 9px; border: 1px solid #8883; border-radius: 9px; }
+.replacement-rule-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 4px; font-size: 11px; }
+.replacement-rule-head select { max-width: 100%; padding: 4px; border: 1px solid #8885; border-radius: 5px; color: inherit; background: inherit; font: inherit; }
+.replacement-rule-actions { display: flex; gap: 3px; }
+.replacement-preview { margin-top: 10px; font-size: 11px; }
+.replacement-preview p { margin-top: 5px; white-space: pre-wrap; overflow-wrap: anywhere; color: #347557; }
+
 .preview-summary { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 14px; }
 .preview-summary div { min-width: 0; }
 .preview-summary span { display: block; margin-bottom: 4px; color: #999ca3; font-size: 10px; }
@@ -123,6 +141,10 @@ h1, h2, p { margin: 0; }
   .current-card, .empty-card, .detail-card, .preview-summary, .result-card, .input-section, .history-item, .field-card, .diff-row { background: #222428; }
   .secondary-button, .small-button, .icon-button, .search-box, .stats div { color: #e6e6e2; background: #2b2d32; }
   .include-toggle { color: #b3b6bf; }
+  .replacement-preview p { color: #83cba2; }
+  .replacement-rule-head select { background: #2c2e33; }
+  .global-replacement { background: #222428; }
+  .replacement-settings-fields textarea { background: #2c2e33; }
   .field-label input, .field-card textarea { color: #ededeb; background: #2c2e33; }
   .field-label input:focus, .field-card textarea:focus { background: #24262b; }
   .sticky-actions { border-top-color: rgba(255,255,255,.06); background: rgba(23,24,27,.92); }

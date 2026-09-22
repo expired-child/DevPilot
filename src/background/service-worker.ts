@@ -66,7 +66,8 @@ const paste = async (tab?: chrome.tabs.Tab): Promise<void> => {
   const tabId = currentTab.id;
   try {
     console.debug('[DevPilot] paste:start', { tabId });
-    const item = await clipboard.getCurrent();
+    const state = await clipboard.getState();
+    const item = state.history.find((entry) => entry.id === state.currentId);
     if (!item) {
       await toast(tabId, '表单剪贴板为空，请先按 Alt+Shift+C 复制', 'error');
       return;
@@ -78,7 +79,7 @@ const paste = async (tab?: chrome.tabs.Tab): Promise<void> => {
 
     // 用目标页现有值播种已用集合，避免唯一字段后缀与页面当前值撞车。
     const usedValues = scan.fields.flatMap((entry) => (typeof entry.value === 'string' ? [entry.value] : []));
-    const plan = buildFillPlan(item, scan.fields, { autoUnique: true, usedValues });
+    const plan = buildFillPlan(item, scan.fields, { autoUnique: true, usedValues, settings: state.settings });
     console.debug('[DevPilot] paste:plan', {
       assignments: plan.assignments.length,
       skipped: plan.skipped.length,

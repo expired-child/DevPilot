@@ -8,6 +8,7 @@ import type {
   FillIssue,
   FillReport,
   FormClipboardItem,
+  FormClipboardSettings,
   FormField,
   FormValue,
 } from '../../modules/form-clipboard/clipboard-types';
@@ -15,6 +16,9 @@ import { validateUniqueFields } from '../../modules/form-clipboard/validation-se
 
 interface Props {
   item: FormClipboardItem;
+  settings: FormClipboardSettings;
+  replacementPending: boolean;
+  onReplacementToggle(enabled: boolean): Promise<void>;
   targetFields: FormField[];
   targetTitle?: string;
   onBack(): void;
@@ -24,7 +28,7 @@ interface Props {
 const labels = { UNCHANGED: '未变化', CHANGED: '已修改', UNIQUE: '唯一字段', UNMATCHED: '未匹配' } as const;
 const valueText = (value: FormValue): string => Array.isArray(value) ? value.join(', ') : String(value ?? '');
 
-export function PastePreviewPage({ item, targetFields, targetTitle, onBack, onConfirm }: Props) {
+export function PastePreviewPage({ item, settings, replacementPending, onReplacementToggle, targetFields, targetTitle, onBack, onConfirm }: Props) {
   const [excluded, setExcluded] = useState<Set<string>>(() => new Set(item.excludedFieldKeys ?? []));
   const [viewAll, setViewAll] = useState(false);
   const [report, setReport] = useState<FillReport | null>(null);
@@ -37,8 +41,8 @@ export function PastePreviewPage({ item, targetFields, targetTitle, onBack, onCo
   const [uniqueOverrides, setUniqueOverrides] = useState<Record<string, string>>({});
 
   const plan = useMemo(
-    () => buildFillPlan(item, targetFields, { variables, overrides: uniqueOverrides, excludedKeys: excluded }),
-    [item, targetFields, variables, uniqueOverrides, excluded],
+    () => buildFillPlan(item, targetFields, { variables, overrides: uniqueOverrides, excludedKeys: excluded, settings }),
+    [item, targetFields, variables, uniqueOverrides, excluded, settings],
   );
   const diffs = plan.diffs;
   const uniqueValidation = validateUniqueFields(
@@ -55,7 +59,7 @@ export function PastePreviewPage({ item, targetFields, targetTitle, onBack, onCo
   const visible = viewAll ? diffs : diffs.filter((diff) => diff.status !== 'UNCHANGED' || excluded.has(diff.source.key));
   const counts = (status: keyof typeof labels): number => diffs.filter((diff) => diff.status === status).length;
   const pasteCount = plan.assignments.length;
-  const canFill = pasteCount > 0 && plan.missingVariables.length === 0 && uniqueValidation.valid;
+  const canFill = pasteCount > 0 && plan.missingVariables.length === 0 && uniqueValidation.valid && !replacementPending;
 
   const toggleField = (key: string, included: boolean): void => {
     setExcluded((current) => {
@@ -98,6 +102,7 @@ export function PastePreviewPage({ item, targetFields, targetTitle, onBack, onCo
     <>
       <header className="page-header"><button className="icon-button" onClick={onBack}>←</button><div><span className="eyebrow">粘贴前检查</span><h1>Paste Preview</h1></div></header>
       <section className="preview-summary"><div><span>目标页面</span><strong>{targetTitle || '当前页面'}</strong></div><div><span>来源</span><strong>{item.name}</strong></div></section>
+      <section className="input-section"><label className="replacement-toggle"><input type="checkbox" role="switch" aria-label="启用输入值替换" checked={settings.replacementEnabled === true} disabled={replacementPending} onChange={(event) => void onReplacementToggle(event.target.checked)} />输入值替换：{settings.replacementEnabled ? '已开启' : '已关闭'}</label><p className="replacement-help">此开关也影响快捷键粘贴；关闭后不执行全局或字段替换。</p></section>
 
       {variableNames.length > 0 && <section className="input-section"><h2>需要填写</h2>{variableNames.map((name) => <label className="field-label" key={name}>{name}<input value={variables[name] ?? ''} onChange={(event) => setVariables((current) => ({ ...current, [name]: event.target.value }))} placeholder={`输入 ${name}`} /></label>)}</section>}
 
@@ -105,7 +110,7 @@ export function PastePreviewPage({ item, targetFields, targetTitle, onBack, onCo
         const field = item.fields.find((entry) => entry.key === key);
         if (!field || typeof field.value !== 'string') return null;
         const isExcluded = excluded.has(key);
-        return <label className={`field-label${isExcluded ? ' excluded' : ''}`} key={key}>{field.label || field.name || key}<input value={uniqueOverrides[key] ?? field.value} disabled={isExcluded} onChange={(event) => setUniqueOverrides((current) => ({ ...current, [key]: event.target.value }))} /><small>原值：{field.value}{isExcluded ? ' · 已排除，不参与粘贴' : ''}</small></label>;
+        return <label className={`field-label${isExcluded ? ' excluded' : ''}`} key={key}>{field.label || field.name || key}<input value={uniqueOverrides[key] ?? valueText(diffs.find((diff) => diff.source.key === key)?.nextValue ?? field.value)} disabled={isExcluded} onChange={(event) => setUniqueOverrides((current) => ({ ...current, [key]: event.target.value }))} /><small>原值：{field.value}{isExcluded ? ' · 已排除，不参与粘贴' : ''}</small></label>;
       })}{uniqueValidation.errors.map((error) => <div className="inline-error" key={error}>{error}</div>)}</section>}
 
       <section className="diff-section">

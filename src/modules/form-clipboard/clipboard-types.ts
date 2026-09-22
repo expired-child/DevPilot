@@ -15,6 +15,13 @@ export type FieldType =
 
 export type FormValue = string | boolean | string[] | null;
 
+export interface ReplacementRule {
+  enabled?: boolean;
+  mode: 'text' | 'regex';
+  search: string;
+  replacement: string;
+}
+
 export interface FormField {
   key: string;
   label?: string;
@@ -25,6 +32,8 @@ export interface FormField {
   selector?: string;
   type: FieldType;
   value: FormValue;
+  /** 随当前表单记录保存，模板渲染后按顺序替换，不改写原始值。 */
+  replacementRules?: ReplacementRule[];
   required?: boolean;
   disabled?: boolean;
   metadata?: Record<string, string>;
@@ -65,6 +74,9 @@ export interface ClipboardTemplate {
 
 export interface FormClipboardSettings {
   historyLimit: number | null;
+  /** 替换总开关，旧配置缺省关闭；关闭时全局和字段规则均不执行。 */
+  replacementEnabled?: boolean;
+  replacementRules?: ReplacementRule[];
 }
 
 export interface FieldRule {

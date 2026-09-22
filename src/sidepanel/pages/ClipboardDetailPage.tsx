@@ -1,6 +1,8 @@
 import { useState } from 'react';
 
-import type { FormClipboardItem, FormField } from '../../modules/form-clipboard/clipboard-types';
+import type { FormClipboardItem, FormField, ReplacementRule } from '../../modules/form-clipboard/clipboard-types';
+import { validateReplacementRules } from '../../modules/form-clipboard/replacement-service';
+import { ReplacementRulesEditor } from './ReplacementRulesEditor';
 
 interface Props {
   item: FormClipboardItem;
@@ -19,9 +21,23 @@ const displayValue = (value: FormField['value']): string => Array.isArray(value)
 export function ClipboardDetailPage({ item, onBack, onPaste, onRename, onDelete, onPin, onUnique, onExclude, onSaveFields }: Props) {
   const [name, setName] = useState(item.name);
   const [values, setValues] = useState<Record<string, string>>({});
+  const [rules, setRules] = useState<Record<string, ReplacementRule[]>>({});
+  const [saveError, setSaveError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const hasInvalidRules = item.fields.some((field) => validateReplacementRules(rules[field.key] ?? field.replacementRules));
 
-  const saveFields = (): void => {
-    void onSaveFields(item.fields.map((field) => typeof field.value === 'string' ? { ...field, value: values[field.key] ?? field.value } : field));
+  const saveFields = async (): Promise<void> => {
+    setSaving(true);
+    setSaveError('');
+    try {
+      await onSaveFields(item.fields.map((field) => typeof field.value === 'string'
+        ? { ...field, value: values[field.key] ?? field.value, replacementRules: rules[field.key] ?? field.replacementRules }
+        : field));
+    } catch (error) {
+      setSaveError(error instanceof Error ? error.message : '字段模板保存失败');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const excludedCount = item.excludedFieldKeys?.length ?? 0;
@@ -47,14 +63,16 @@ export function ClipboardDetailPage({ item, onBack, onPaste, onRename, onDelete,
               <article className={`field-card${isExcluded ? ' excluded' : ''}`} key={field.key}>
                 <div className="field-card-head"><strong>{field.label || field.name || field.id || field.key}</strong><span className="head-toggles"><label className="include-toggle"><input type="checkbox" checked={!isExcluded} onChange={(event) => void onExclude(field.key, !event.target.checked)} />粘贴</label><label className="unique-toggle"><input type="checkbox" checked={isUnique} disabled={!canBeUnique} onChange={(event) => void onUnique(field.key, event.target.checked)} />唯一字段</label></span></div>
                 {typeof field.value === 'string' ? (
-                  <textarea rows={field.value.length > 80 ? 3 : 1} value={values[field.key] ?? ''} onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))} />
+                  <textarea aria-label={`${field.label || field.name || field.key}字段值`} rows={field.value.length > 80 ? 3 : 1} value={values[field.key] ?? field.value} onChange={(event) => setValues((current) => ({ ...current, [field.key]: event.target.value }))} />
                 ) : <div className="value-preview">{displayValue(field.value)}</div>}
                 <small>{field.key} · {field.type}</small>
+                {typeof field.value === 'string' && <ReplacementRulesEditor value={values[field.key] ?? field.value} variables={item.variables} rules={rules[field.key] ?? field.replacementRules ?? []} onChange={(next) => setRules((current) => ({ ...current, [field.key]: next }))} />}
               </article>
             );
           })}
         </div>
-        <button className="secondary-button full" onClick={saveFields}>保存字段模板</button>
+        {saveError && <div className="inline-error" role="alert">{saveError}</div>}
+        <button className="secondary-button full" disabled={hasInvalidRules || saving} onClick={() => void saveFields()}>{saving ? '正在保存…' : '保存字段模板'}</button>
       </section>
 
       <footer className="sticky-actions"><button className="primary-button" onClick={onPaste}>粘贴此表单</button><button className="text-button danger" onClick={() => { if (window.confirm(`确定删除“${item.name}”吗？`)) void onDelete(); }}>删除</button></footer>
