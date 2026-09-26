@@ -7,7 +7,7 @@ export interface CommandHandlers {
 
 /**
  * 同一次按键可能同时命中 chrome.commands 与页面 keydown 兜底通道，
- * 这里用短窗口去重，避免一次按键执行两遍（复制会产生重复快照）。
+ * 这里用短窗口去重，避免一次按键执行两遍（复制会产生重复快照）。 
  */
 const DEDUPE_WINDOW_MS = 300;
 const lastRunAt = new Map<string, number>();
