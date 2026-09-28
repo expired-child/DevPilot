@@ -51,6 +51,11 @@ export interface FormScanResult {
   fields: FormField[];
 }
 
+export interface FormTargetSnapshot {
+  url: string;
+  fingerprint: string;
+}
+
 export interface FormClipboardItem {
   id: string;
   name: string;
@@ -64,6 +69,14 @@ export interface FormClipboardItem {
   excludedFieldKeys?: string[];
   pinned?: boolean;
   fingerprint: string;
+}
+
+export interface FormClipboardDetails {
+  name: string;
+  fields: FormField[];
+  uniqueFieldKeys: string[];
+  excludedFieldKeys: string[];
+  pinned: boolean;
 }
 
 export interface ClipboardTemplate {

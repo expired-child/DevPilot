@@ -1,4 +1,4 @@
-import { COMMANDS, SHORTCUT_ACTIONS } from '../shared/constants';
+import { COMMANDS, SHORTCUT_ACTIONS, SHORTCUT_BINDINGS_REQUEST } from '../shared/constants';
 
 export interface CommandHandlers {
   copy(tab?: chrome.tabs.Tab): Promise<void>;
@@ -7,7 +7,7 @@ export interface CommandHandlers {
 
 /**
  * 同一次按键可能同时命中 chrome.commands 与页面 keydown 兜底通道，
- * 这里用短窗口去重，避免一次按键执行两遍（复制会产生重复快照）。 
+ * 这里用短窗口去重，避免一次按键执行两遍（复制会产生重复快照）。
  */
 const DEDUPE_WINDOW_MS = 300;
 const lastRunAt = new Map<string, number>();
@@ -38,6 +38,13 @@ export const registerCommands = (handlers: CommandHandlers): void => {
 
   chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
     const type = typeof message === 'object' && message !== null && 'type' in message ? message.type : null;
+    if (type === SHORTCUT_BINDINGS_REQUEST) {
+      void chrome.commands.getAll().then((commands) => {
+        const bound = (name: string): boolean => Boolean(commands.find((command) => command.name === name)?.shortcut);
+        sendResponse({ ok: true, fallbackCopy: !bound(COMMANDS.copy), fallbackPaste: !bound(COMMANDS.paste) });
+      }).catch(() => sendResponse({ ok: false }));
+      return true;
+    }
     if (type !== SHORTCUT_ACTIONS.copy && type !== SHORTCUT_ACTIONS.paste) {
       return false;
     }

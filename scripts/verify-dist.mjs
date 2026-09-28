@@ -41,10 +41,10 @@ if (contentFiles.includes(importedPath.replace(/^\.\//u, ''))) {
 
 const event = { addListener() {} };
 globalThis.chrome = {
-  commands: { onCommand: event },
+  commands: { onCommand: event, getAll: async () => [] },
   contextMenus: { create() {}, onClicked: event, removeAll: async () => {} },
   runtime: { onInstalled: event, onMessage: event },
-  sidePanel: { open: async () => {} },
+  sidePanel: { open: async () => {}, setPanelBehavior: async () => {} },
   storage: {
     local: { get: async () => ({}), set: async () => {} },
     session: { set: async () => {} },

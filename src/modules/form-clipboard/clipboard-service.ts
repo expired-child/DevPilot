@@ -1,6 +1,7 @@
 import type { ClipboardRepository } from './clipboard-repository';
 import type {
   FormClipboardItem,
+  FormClipboardDetails,
   FormClipboardState,
   FormField,
   FormScanResult,
@@ -75,6 +76,41 @@ export class ClipboardService {
 
   async rename(id: string, name: string): Promise<void> {
     await this.updateItem(id, (item) => ({ ...item, name: name.trim() || item.name }));
+  }
+
+  async saveDetails(id: string, details: FormClipboardDetails): Promise<FormClipboardItem> {
+    for (const field of details.fields) {
+      const error = validateReplacementRules(field.replacementRules);
+      if (error) throw new Error(`${field.label || field.name || field.key}：${error}`);
+    }
+    const state = await this.repository.get();
+    const item = state.history.find((entry) => entry.id === id);
+    if (!item) throw new Error('表单记录已不存在，请返回历史重新选择。');
+
+    const fieldKeys = new Set(item.fields.map((field) => field.key));
+    const uniqueFieldKeys = [...new Set(details.uniqueFieldKeys)].filter((key) => fieldKeys.has(key));
+    const excludedFieldKeys = [...new Set(details.excludedFieldKeys)].filter((key) => fieldKeys.has(key));
+    const previousUnique = new Set(item.uniqueFieldKeys ?? []);
+    const nextUnique = new Set(uniqueFieldKeys);
+    for (const key of fieldKeys) {
+      if (previousUnique.has(key) !== nextUnique.has(key)) {
+        state.fieldRules[ruleKey(item.source.host, key)] = { unique: nextUnique.has(key) };
+      }
+    }
+
+    const updated: FormClipboardItem = {
+      ...item,
+      name: details.name.trim() || item.name,
+      fields: details.fields,
+      uniqueFieldKeys,
+      excludedFieldKeys,
+      pinned: details.pinned,
+      fingerprint: createFingerprint(item.source.host, details.fields),
+      updatedAt: this.now(),
+    };
+    state.history = sortHistory(state.history.map((entry) => entry.id === id ? updated : entry));
+    await this.repository.save(state);
+    return updated;
   }
 
   async remove(id: string): Promise<void> {

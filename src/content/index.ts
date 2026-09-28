@@ -31,7 +31,7 @@ const handleRequest = async (request: ContentRequest): Promise<ContentResponse> 
       return { ok: true, scan: scanForm().result };
     }
     if (request.type === 'APPLY_FIELDS') {
-      return { ok: true, report: await applyFields(request.assignments) };
+      return { ok: true, report: await applyFields(request.assignments, request.expectedTarget) };
     }
     showToast(request.message, request.tone);
     return { ok: true };

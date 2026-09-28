@@ -15,7 +15,7 @@ export const createDiff = (
       ? 'UNMATCHED'
       : unique.has(match.source.key)
         ? 'UNIQUE'
-        : equalValue(match.source.value, nextValue)
+        : equalValue(match.target.value, nextValue)
           ? 'UNCHANGED'
           : 'CHANGED';
 

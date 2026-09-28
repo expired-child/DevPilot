@@ -6,19 +6,45 @@ import type {
   FieldAssignment,
   FillIssue,
   FillReport,
+  FormClipboardDetails,
   FormClipboardItem,
   FormClipboardState,
   FormField,
+  FormTargetSnapshot,
 } from '../modules/form-clipboard/clipboard-types';
-import { getActiveTab, scanActiveTab, sendToTab } from '../shared/messaging/tab-messaging';
+import { createFingerprint } from '../modules/form-clipboard/fingerprint';
+import { getActiveTab, scanActiveTab, scanTab, sendToTab } from '../shared/messaging/tab-messaging';
 import { ClipboardDetailPage } from './pages/ClipboardDetailPage';
 import { ClipboardPage } from './pages/ClipboardPage';
 import { PastePreviewPage } from './pages/PastePreviewPage';
 
-type View = { page: 'list' } | { page: 'detail'; itemId: string } | { page: 'preview'; itemId: string; targetFields: FormField[]; targetTitle?: string };
+type View = { page: 'list' } | { page: 'detail'; itemId: string } | {
+  page: 'preview'; itemId: string; targetTabId: number; targetSnapshot: FormTargetSnapshot;
+  targetFields: FormField[]; targetTitle?: string;
+};
 
 const repository = new ChromeClipboardRepository();
 const service = new ClipboardService(repository);
+
+const errorText = (error: unknown): string =>
+  error instanceof Error && /Receiving end does not exist|Could not establish connection/.test(error.message)
+    ? '当前页面不允许扩展访问，请切换到普通网页后重试。'
+    : error instanceof Error ? error.message : '操作失败';
+
+const scanPreview = async (itemId: string): Promise<Extract<View, { page: 'preview' }>> => {
+  const tab = await getActiveTab();
+  const target = await scanTab(tab.id!);
+  if (target.fields.length === 0) throw new Error('当前页面没有可填充的表单字段');
+  return {
+    page: 'preview', itemId, targetTabId: tab.id!,
+    targetSnapshot: {
+      url: target.source.url,
+      fingerprint: createFingerprint(target.source.host, target.fields),
+    },
+    targetFields: target.fields,
+    targetTitle: target.source.title,
+  };
+};
 
 export function App() {
   const [state, setState] = useState<FormClipboardState | null>(null);
@@ -33,29 +59,15 @@ export function App() {
   }, []);
 
   const showError = (error: unknown): void => {
-    setNotice({
-      tone: 'error',
-      text:
-        error instanceof Error && /Receiving end does not exist|Could not establish connection/.test(error.message)
-          ? '当前页面不允许扩展访问，请切换到普通网页后重试。'
-          : error instanceof Error
-            ? error.message
-            : '操作失败',
-    });
+    setNotice({ tone: 'error', text: errorText(error) });
   };
 
   const startPaste = useCallback(async (item: FormClipboardItem): Promise<void> => {
     try {
-      const target = await scanActiveTab();
-      setView({
-        page: 'preview',
-        itemId: item.id,
-        targetFields: target.fields,
-        targetTitle: target.source.title,
-      });
+      setView(await scanPreview(item.id));
       setNotice(null);
     } catch (error) {
-      showError(error);
+      throw new Error(errorText(error), { cause: error });
     }
   }, []);
 
@@ -90,7 +102,7 @@ export function App() {
       if (scan.fields.length === 0) throw new Error('当前页面没有可复制的表单字段');
       const captured = await service.capture(scan);
       await reload();
-      setNotice({ tone: 'success', text: `已复制 ${captured.name} · ${captured.fields.length} 个字段` });
+      setNotice({ tone: 'success', text: `已复制 ${captured.name} · ${captured.fields.length} 个字段 · ${scan.source.title || scan.source.host}` });
     } catch (error) {
       showError(error);
     }
@@ -108,10 +120,14 @@ export function App() {
     }
   };
 
-  const confirmFill = async (assignments: FieldAssignment[], skipped: FillIssue[]): Promise<FillReport | null> => {
+  const confirmFill = async (assignments: FieldAssignment[], skipped: FillIssue[]): Promise<FillReport> => {
     try {
+      if (view.page !== 'preview') throw new Error('预览已失效，请重新打开粘贴预览。');
       const tab = await getActiveTab();
-      const response = await sendToTab(tab.id!, { type: 'APPLY_FIELDS', assignments });
+      if (tab.id !== view.targetTabId) throw new Error('目标标签页已切换，请重新扫描当前页。');
+      const response = await sendToTab(view.targetTabId, {
+        type: 'APPLY_FIELDS', assignments, expectedTarget: view.targetSnapshot,
+      });
       if (!response.ok || !('report' in response)) throw new Error(response.ok ? '未获取到填充结果' : response.error);
       const report: FillReport = {
         ...response.report,
@@ -121,14 +137,13 @@ export function App() {
       setNotice({ tone: report.failed ? 'error' : 'success', text: `填充完成：成功 ${report.success}，跳过 ${report.skipped}，失败 ${report.failed}` });
       return report;
     } catch (error) {
-      showError(error);
-      return null;
+      throw new Error(errorText(error), { cause: error });
     }
   };
 
   return (
     <main className="app-shell">
-      {notice && <div className={`notice ${notice.tone}`}>{notice.text}</div>}
+      {notice && <div className={`notice ${notice.tone}`} role={notice.tone === 'error' ? 'alert' : 'status'}>{notice.text}</div>}
       {view.page === 'list' && (
         <ClipboardPage
           state={state}
@@ -140,7 +155,7 @@ export function App() {
             setNotice({ tone: 'success', text: '全局替换规则已保存' });
           }}
           onCopy={() => void copyCurrent()}
-          onPaste={(entry) => void startPaste(entry)}
+          onPaste={(entry) => void startPaste(entry).catch(showError)}
           onDetail={(entry) => setView({ page: 'detail', itemId: entry.id })}
           onClear={async () => {
             await service.clear();
@@ -153,32 +168,16 @@ export function App() {
           key={item.id}
           item={item}
           onBack={() => setView({ page: 'list' })}
-          onPaste={() => void startPaste(item)}
-          onRename={async (name) => {
-            await service.rename(item.id, name);
+          onPaste={() => startPaste(item)}
+          onSave={async (details: FormClipboardDetails) => {
+            await service.saveDetails(item.id, details);
             await reload();
+            setNotice({ tone: 'success', text: '更改已保存' });
           }}
           onDelete={async () => {
             await service.remove(item.id);
             await reload();
             setView({ page: 'list' });
-          }}
-          onPin={async () => {
-            await service.togglePin(item.id);
-            await reload();
-          }}
-          onUnique={async (fieldKey, unique) => {
-            await service.setUniqueField(item.id, fieldKey, unique);
-            await reload();
-          }}
-          onExclude={async (fieldKey, excluded) => {
-            await service.setFieldExcluded(item.id, fieldKey, excluded);
-            await reload();
-          }}
-          onSaveFields={async (fields: FormField[]) => {
-            await service.saveFields(item.id, fields);
-            await reload();
-            setNotice({ tone: 'success', text: '字段模板已保存' });
           }}
         />
       )}
@@ -191,6 +190,9 @@ export function App() {
           targetFields={view.targetFields}
           targetTitle={view.targetTitle}
           onBack={() => setView({ page: 'list' })}
+          onRefresh={async () => {
+            setView(await scanPreview(view.itemId));
+          }}
           onConfirm={confirmFill}
         />
       )}

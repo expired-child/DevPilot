@@ -1,6 +1,7 @@
 import { ClipboardService } from '../modules/form-clipboard/clipboard-service';
 import { ChromeClipboardRepository } from '../modules/form-clipboard/clipboard-repository';
 import { buildFillPlan } from '../modules/form-clipboard/fill-plan-service';
+import { createFingerprint } from '../modules/form-clipboard/fingerprint';
 import type { FillReport, FormScanResult } from '../modules/form-clipboard/clipboard-types';
 import { getActiveTab, sendToTab } from '../shared/messaging/tab-messaging';
 import { registerCommands, type CommandHandlers } from './commands';
@@ -69,7 +70,7 @@ const paste = async (tab?: chrome.tabs.Tab): Promise<void> => {
     const state = await clipboard.getState();
     const item = state.history.find((entry) => entry.id === state.currentId);
     if (!item) {
-      await toast(tabId, '表单剪贴板为空，请先按 Alt+Shift+C 复制', 'error');
+      await toast(tabId, '表单剪贴板为空，请先在 DevPilot 侧栏复制表单', 'error');
       return;
     }
     console.debug('[DevPilot] paste:item', { id: item.id, fields: item.fields.length });
@@ -91,7 +92,14 @@ const paste = async (tab?: chrome.tabs.Tab): Promise<void> => {
       return;
     }
 
-    const response = await sendToTab(tabId!, { type: 'APPLY_FIELDS', assignments: plan.assignments });
+    const response = await sendToTab(tabId!, {
+      type: 'APPLY_FIELDS',
+      assignments: plan.assignments,
+      expectedTarget: {
+        url: scan.source.url,
+        fingerprint: createFingerprint(scan.source.host, scan.fields),
+      },
+    });
     if (!response.ok || !('report' in response)) {
       throw new Error(response.ok ? '未获取到填充结果' : response.error);
     }
@@ -106,7 +114,7 @@ const paste = async (tab?: chrome.tabs.Tab): Promise<void> => {
     const detail = report.issues.slice(0, 2).map((issue) => `${issue.label}：${issue.reason}`).join('；');
     await toast(
       tabId,
-      `填充完成：成功 ${report.success}，跳过 ${report.skipped}，失败 ${report.failed}${detail ? ` · ${detail}` : ''}`,
+      `已直接填充（跳过预览）：成功 ${report.success}，跳过 ${report.skipped}，失败 ${report.failed}${detail ? ` · ${detail}` : ''}`,
       report.failed ? 'error' : 'success',
     );
   } catch (error) {
@@ -119,3 +127,6 @@ const handlers: CommandHandlers = { copy, paste };
 
 registerCommands(handlers);
 registerContextMenus(handlers);
+void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error: unknown) => {
+  console.error('[DevPilot] sidePanel:setup-failed', error);
+});

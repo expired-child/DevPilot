@@ -2,11 +2,12 @@ import type {
   FieldAssignment,
   FillReport,
   FormScanResult,
+  FormTargetSnapshot,
 } from '../../modules/form-clipboard/clipboard-types';
 
 export type ContentRequest =
   | { type: 'SCAN_FORM' }
-  | { type: 'APPLY_FIELDS'; assignments: FieldAssignment[] }
+  | { type: 'APPLY_FIELDS'; assignments: FieldAssignment[]; expectedTarget?: FormTargetSnapshot }
   | { type: 'SHOW_TOAST'; message: string; tone?: 'success' | 'error' };
 
 export type ContentResponse =

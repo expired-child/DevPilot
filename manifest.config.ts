@@ -8,8 +8,7 @@ export default defineManifest({
   minimum_chrome_version: '114',
   permissions: ['activeTab', 'contextMenus', 'sidePanel', 'storage'],
   action: {
-    default_title: '打开 DevPilot',
-    default_popup: 'sidepanel.html',
+    default_title: '打开 DevPilot 侧栏',
   },
   background: {
     service_worker: 'src/background/service-worker.ts',
@@ -36,7 +35,7 @@ export default defineManifest({
       suggested_key: {
         default: 'Alt+Shift+V',
       },
-      description: '一键粘贴最近表单到当前页',
+      description: '直接填充最近表单到当前页（跳过预览）',
     },
   },
 });

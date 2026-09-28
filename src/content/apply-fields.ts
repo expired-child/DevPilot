@@ -1,6 +1,7 @@
 import { getFieldAdapter } from './adapters';
 import { scanForm, type ScannedField } from './scanner/form-scanner';
-import type { FieldAssignment, FillReport, FormValue } from '../modules/form-clipboard/clipboard-types';
+import type { FieldAssignment, FillReport, FormTargetSnapshot, FormValue } from '../modules/form-clipboard/clipboard-types';
+import { createFingerprint } from '../modules/form-clipboard/fingerprint';
 
 /** 每次重扫的间隔：足够 React 完成一次联动渲染，又不至于让用户感到卡顿。 */
 const RETRY_INTERVAL_MS = 100;
@@ -75,9 +76,16 @@ const findTarget = async (
   return undefined;
 };
 
-export const applyFields = async (assignments: FieldAssignment[]): Promise<FillReport> => {
+export const applyFields = async (assignments: FieldAssignment[], expectedTarget?: FormTargetSnapshot): Promise<FillReport> => {
   // 整次填充锁定表单；控件失焦或下拉弹出后不能转而扫描其他表单。
-  const { scope } = scanForm();
+  const scanned = scanForm();
+  if (expectedTarget && (
+    scanned.result.source.url !== expectedTarget.url ||
+    createFingerprint(scanned.result.source.host, scanned.result.fields) !== expectedTarget.fingerprint
+  )) {
+    throw new Error('目标页面或表单已变化，请重新执行填充。');
+  }
+  const { scope } = scanned;
   const report: FillReport = { success: 0, skipped: 0, failed: 0, issues: [] };
   const budget: WaitBudget = { remainingMs: RETRY_BUDGET_MS };
   const applied: FieldAssignment[] = [];

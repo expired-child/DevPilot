@@ -10,6 +10,8 @@ export const SHORTCUT_ACTIONS = {
 
 export type ShortcutAction = (typeof SHORTCUT_ACTIONS)[keyof typeof SHORTCUT_ACTIONS];
 
+export const SHORTCUT_BINDINGS_REQUEST = 'GET_SHORTCUT_BINDINGS';
+
 export const CONTEXT_MENUS = {
   root: 'devpilot-root',
   copy: 'devpilot-copy-form',

@@ -14,11 +14,15 @@ export const sendToTab = async (
   request: ContentRequest,
 ): Promise<ContentResponse> => chrome.tabs.sendMessage(tabId, request) as Promise<ContentResponse>;
 
-export const scanActiveTab = async (): Promise<FormScanResult> => {
-  const tab = await getActiveTab();
-  const response = await sendToTab(tab.id!, { type: 'SCAN_FORM' });
+export const scanTab = async (tabId: number): Promise<FormScanResult> => {
+  const response = await sendToTab(tabId, { type: 'SCAN_FORM' });
   if (!response?.ok || !('scan' in response)) {
     throw new Error(response && 'error' in response ? response.error : '当前页面暂不支持表单扫描');
   }
   return response.scan;
+};
+
+export const scanActiveTab = async (): Promise<FormScanResult> => {
+  const tab = await getActiveTab();
+  return scanTab(tab.id!);
 };
