@@ -1,4 +1,5 @@
 import { FIELD_CONTAINER_SELECTOR } from './control-selectors';
+import { closestComposed, querySelectorAllDeep } from './composed-dom';
 import type { FormControlElement } from './field-filter';
 
 const clean = (value?: string | null): string | undefined => {
@@ -11,12 +12,12 @@ const clean = (value?: string | null): string | undefined => {
  * 所在列的表头 th 就是它的事实标签。对任何表格 UI 库通用（td.cellIndex → 同列 th）。
  */
 const resolveTableHeader = (element: FormControlElement): string | undefined => {
-  const cell = element.closest('td');
-  const table = element.closest('table');
+  const cell = closestComposed<HTMLTableCellElement>(element, 'td');
+  const table = closestComposed<HTMLTableElement>(element, 'table');
   if (!cell || !table || typeof table.querySelectorAll !== 'function') {
     return undefined;
   }
-  const headers = [...table.querySelectorAll<HTMLElement>('thead th, thead td')];
+  const headers = querySelectorAllDeep<HTMLElement>(table, 'thead th, thead td');
   const index = cell.cellIndex;
   if (index < 0 || index >= headers.length) {
     return undefined;
@@ -31,8 +32,10 @@ const resolveTableHeader = (element: FormControlElement): string | undefined => 
  * → form-item 容器内 label 节点 → 表格列头 → placeholder。
  */
 export const resolveLabel = (element: FormControlElement): string | undefined => {
+  const root = element.getRootNode();
+  const labelRoot = root instanceof Document || root instanceof ShadowRoot ? root : document;
   if (element.id) {
-    const explicit = document.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(element.id)}"]`);
+    const explicit = labelRoot.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(element.id)}"]`);
     if (explicit) {
       const titled = clean(explicit.getAttribute('title'));
       if (titled) {
@@ -50,14 +53,14 @@ export const resolveLabel = (element: FormControlElement): string | undefined =>
     return ariaLabel;
   }
 
-  const wrapping = element.closest('label');
+  const wrapping = closestComposed<HTMLLabelElement>(element, 'label');
   if (wrapping?.textContent) {
     const value =
       element instanceof HTMLInputElement ||
       element instanceof HTMLTextAreaElement ||
       element instanceof HTMLSelectElement
         ? element.value
-        : '';
+        : element.isContentEditable ? element.innerText : '';
     return clean(wrapping.textContent.replace(value, ''));
   }
 
@@ -65,15 +68,15 @@ export const resolveLabel = (element: FormControlElement): string | undefined =>
   if (labelledBy) {
     const text = labelledBy
       .split(/\s+/)
-      .map((id) => document.getElementById(id)?.textContent ?? '')
+      .map((id) => labelRoot.getElementById(id)?.textContent ?? '')
       .join(' ');
     if (clean(text)) {
       return clean(text);
     }
   }
 
-  const item = element.closest<HTMLElement>(FIELD_CONTAINER_SELECTOR);
-  const nearby = item?.querySelector<HTMLElement>('label, [class*="label"], .ant-form-item-label');
+  const item = closestComposed(element, FIELD_CONTAINER_SELECTOR);
+  const nearby = item && querySelectorAllDeep<HTMLElement>(item, 'label, [class*="label"], .ant-form-item-label')[0];
   const containerLabel = clean(nearby?.textContent);
   if (containerLabel) {
     return containerLabel;

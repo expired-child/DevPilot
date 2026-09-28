@@ -230,10 +230,13 @@ export const matchesDropdownClassToken = (element: HTMLElement): boolean =>
 export const GENERIC_DROPDOWN_MAX_DEPTH = 3;
 
 /** 扫描时用于收集全部候选控件的选择器。 */
+export const CONTENT_EDITABLE_SELECTOR = '[contenteditable="true" i], [contenteditable=""], [contenteditable="plaintext-only" i]';
+
 export const CONTROL_COLLECT_SELECTOR = join([
   'input',
   'textarea',
   'select',
+  CONTENT_EDITABLE_SELECTOR,
   CUSTOM_SELECT_ROOT_SELECTOR,
   COMBOBOX_SELECTOR,
   SWITCH_ROOT_SELECTOR,
@@ -274,6 +277,7 @@ export const DIALOG_SCOPE_SELECTOR = join([
 /** 表单作用域候选：优先在真正的表单/弹窗内扫描。 */
 export const FORM_SCOPE_SELECTOR = join([
   'form',
+  '[role="form"]',
   DIALOG_SCOPE_SELECTOR,
   'main',
   '.ant-form',

@@ -1,12 +1,21 @@
 import { defineManifest } from '@crxjs/vite-plugin';
 
+const formContentScript = {
+  matches: ['http://*/*', 'https://*/*'],
+  js: ['src/content/index.ts' as const],
+  all_frames: true,
+  match_about_blank: true,
+  match_origin_as_fallback: true,
+  run_at: 'document_idle' as const,
+};
+
 export default defineManifest({
   manifest_version: 3,
   name: 'DevPilot',
   description: '面向开发者的浏览器效率工具，首个模块为表单剪贴板。',
   version: '0.1.8',
   minimum_chrome_version: '141',
-  permissions: ['activeTab', 'bookmarks', 'contextMenus', 'sidePanel', 'storage'],
+  permissions: ['activeTab', 'bookmarks', 'contextMenus', 'sidePanel', 'storage', 'webNavigation'],
   action: {
     default_title: '打开 DevPilot 侧栏',
   },
@@ -17,13 +26,7 @@ export default defineManifest({
   side_panel: {
     default_path: 'sidepanel.html',
   },
-  content_scripts: [
-    {
-      matches: ['http://*/*', 'https://*/*'],
-      js: ['src/content/index.ts'],
-      run_at: 'document_idle',
-    },
-  ],
+  content_scripts: [formContentScript],
   commands: {
     'copy-current-form': {
       suggested_key: {

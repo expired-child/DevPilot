@@ -1,10 +1,11 @@
 import type { FormValue } from '../../modules/form-clipboard/clipboard-types';
 import { DATE_PICKER_ROOT_SELECTOR } from '../scanner/control-selectors';
+import { closestComposed } from '../scanner/composed-dom';
 import type { FormControlElement } from '../scanner/field-filter';
 import { dispatchValueEvents, setNativeValue, type FieldAdapter } from './field-adapter';
 
 export const findDatePickerRoot = (element: HTMLElement): HTMLElement | null =>
-  element.closest<HTMLElement>(DATE_PICKER_ROOT_SELECTOR);
+  closestComposed(element, DATE_PICKER_ROOT_SELECTOR);
 
 /**
  * 日期/时间选择控件。它的输入框本身是普通文本输入，

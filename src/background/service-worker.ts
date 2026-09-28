@@ -2,8 +2,8 @@ import { ClipboardService } from '../modules/form-clipboard/clipboard-service';
 import { ChromeClipboardRepository } from '../modules/form-clipboard/clipboard-repository';
 import { buildFillPlan } from '../modules/form-clipboard/fill-plan-service';
 import { createFingerprint } from '../modules/form-clipboard/fingerprint';
-import type { FillReport, FormScanResult } from '../modules/form-clipboard/clipboard-types';
-import { getActiveTab, sendToTab } from '../shared/messaging/tab-messaging';
+import type { FillReport } from '../modules/form-clipboard/clipboard-types';
+import { getActiveTab, scanTab, sendToTab } from '../shared/messaging/tab-messaging';
 import { BOOKMARK_SEARCH_TRIGGER, type BookmarkSearchTrigger } from '../shared/constants';
 import { registerCommands, type CommandHandlers } from './commands';
 import { registerContextMenus } from './context-menu';
@@ -12,12 +12,17 @@ const clipboard = new ClipboardService(new ChromeClipboardRepository());
 
 const targetTab = async (tab?: chrome.tabs.Tab): Promise<chrome.tabs.Tab> => tab?.id ? tab : getActiveTab();
 
-const toast = async (tabId: number | undefined, message: string, tone: 'success' | 'error' = 'success'): Promise<void> => {
+const toast = async (
+  tabId: number | undefined,
+  message: string,
+  tone: 'success' | 'error' = 'success',
+  target?: chrome.tabs.MessageSendOptions,
+): Promise<void> => {
   if (tabId === undefined) {
     return;
   }
   try {
-    await sendToTab(tabId, { type: 'SHOW_TOAST', message, tone });
+    await sendToTab(tabId, { type: 'SHOW_TOAST', message, tone }, target);
   } catch {
     // Chrome 内置页面不允许内容脚本运行，页内提示不可用；
     // 至少通过工具栏徽标告知用户扩展有反馈，避免完全静默。
@@ -40,23 +45,17 @@ const errorText = (error: unknown): string => {
     : message;
 };
 
-const scanTab = async (tabId: number): Promise<FormScanResult> => {
-  const response = await sendToTab(tabId, { type: 'SCAN_FORM' });
-  if (!response.ok || !('scan' in response)) {
-    throw new Error(response.ok ? '未获取到表单' : response.error);
-  }
-  return response.scan;
-};
-
 const copy = async (tab?: chrome.tabs.Tab): Promise<void> => {
   const currentTab = await targetTab(tab);
   try {
-    const scan = await scanTab(currentTab.id!);
+    const target = await scanTab(currentTab.id!);
+    const { scan } = target;
     if (scan.fields.length === 0) {
       throw new Error('当前页面没有可复制的表单字段');
     }
     const item = await clipboard.capture(scan);
-    await toast(currentTab.id, `已复制表单 · ${item.name} · ${item.fields.length} 个字段`);
+    await toast(currentTab.id, `已复制表单 · ${item.name} · ${item.fields.length} 个字段`, 'success',
+      target.documentId ? { documentId: target.documentId } : { frameId: target.frameId });
   } catch (error) {
     console.error('[DevPilot] copy:failed', error);
     await toast(currentTab.id, errorText(error), 'error');
@@ -76,7 +75,8 @@ const paste = async (tab?: chrome.tabs.Tab): Promise<void> => {
     }
     console.debug('[DevPilot] paste:item', { id: item.id, fields: item.fields.length });
 
-    const scan = await scanTab(tabId!);
+    const target = await scanTab(tabId!);
+    const { scan } = target;
     console.debug('[DevPilot] paste:target', { fields: scan.fields.length });
 
     // 用目标页现有值播种已用集合，避免唯一字段后缀与页面当前值撞车。
@@ -100,7 +100,7 @@ const paste = async (tab?: chrome.tabs.Tab): Promise<void> => {
         url: scan.source.url,
         fingerprint: createFingerprint(scan.source.host, scan.fields),
       },
-    });
+    }, target.documentId ? { documentId: target.documentId } : { frameId: target.frameId });
     if (!response.ok || !('report' in response)) {
       throw new Error(response.ok ? '未获取到填充结果' : response.error);
     }
@@ -117,6 +117,7 @@ const paste = async (tab?: chrome.tabs.Tab): Promise<void> => {
       tabId,
       `已直接填充（跳过预览）：成功 ${report.success}，跳过 ${report.skipped}，失败 ${report.failed}${detail ? ` · ${detail}` : ''}`,
       report.failed ? 'error' : 'success',
+      target.documentId ? { documentId: target.documentId } : { frameId: target.frameId },
     );
   } catch (error) {
     console.error('[DevPilot] paste:failed', error);

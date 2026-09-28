@@ -1,10 +1,11 @@
 import type { FormValue } from '../../modules/form-clipboard/clipboard-types';
 import { SWITCH_ROOT_SELECTOR } from '../scanner/control-selectors';
+import { closestComposed, querySelectorAllDeep } from '../scanner/composed-dom';
 import type { FormControlElement } from '../scanner/field-filter';
 import { dispatchValueEvents, type FieldAdapter } from './field-adapter';
 
 export const findSwitchRoot = (element: HTMLElement): HTMLElement | null =>
-  element.closest<HTMLElement>(SWITCH_ROOT_SELECTOR);
+  closestComposed(element, SWITCH_ROOT_SELECTOR);
 
 const hasCheckedClass = (root: HTMLElement): boolean =>
   [...root.classList].some(
@@ -23,7 +24,7 @@ export const readSwitchChecked = (root: HTMLElement): boolean => {
 const switchInput = (root: HTMLElement): HTMLInputElement | null =>
   root instanceof HTMLInputElement && root.type === 'checkbox'
     ? root
-    : root.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    : querySelectorAllDeep<HTMLInputElement>(root, 'input[type="checkbox"]')[0] ?? null;
 
 export class SwitchAdapter implements FieldAdapter {
   supports(element: FormControlElement): boolean {

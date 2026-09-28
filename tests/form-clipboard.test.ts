@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest';
-import { scanForm } from '../src/content/scanner/form-scanner';
+import { isFocusedScannedForm, scanForm } from '../src/content/scanner/form-scanner';
 import { applyFields } from '../src/content/apply-fields';
 import { buildFillPlan } from '../src/modules/form-clipboard/fill-plan-service';
 import type { FormClipboardItem } from '../src/modules/form-clipboard/clipboard-types';
@@ -41,6 +41,14 @@ describe('copy scope', () => {
       { name: 'accountId', value: 'account-123' },
       { name: 'username', value: 'user-a' },
     ]);
+  });
+
+  it('keeps the login frame selected when its excluded password field is focused', () => {
+    document.body.innerHTML = '<form><input name="username" value="user-a"><input name="password" type="password"></form>';
+    document.querySelector<HTMLInputElement>('[name="password"]')!.focus();
+    const scanned = scanForm();
+    expect(scanned.result.fields.map((field) => field.name)).toEqual(['username']);
+    expect(isFocusedScannedForm(scanned)).toBe(true);
   });
 
   it('excludes an unlabeled password even when the login controls have no form element', () => {
@@ -134,6 +142,102 @@ describe('copy scope', () => {
 });
 
 describe('copy and paste round trip', () => {
+  it('copies and fills a plain contenteditable field', async () => {
+    document.body.innerHTML = '<section role="form"><label for="notes">备注</label><div id="notes" contenteditable="true">draft</div></section>';
+    const source = capture();
+    expect(source.fields.map((field) => ({ type: field.type, value: field.value }))).toEqual([{ type: 'textarea', value: 'draft' }]);
+    const editor = document.querySelector<HTMLElement>('#notes')!;
+    editor.innerText = '';
+    const plan = buildFillPlan(source, scanForm().result.fields);
+    expect(await applyFields(plan.assignments)).toMatchObject({ success: 1, failed: 0 });
+    expect(editor.innerText).toBe('draft');
+  });
+
+  it('keeps a wrapped contenteditable label stable when its value changes', async () => {
+    document.body.innerHTML = '<form><label>Notes<div contenteditable="true">draft</div></label></form>';
+    const source = capture();
+    expect(source.fields[0].key).toBe('label:Notes');
+    document.querySelector<HTMLElement>('[contenteditable]')!.innerText = '';
+    const plan = buildFillPlan(source, scanForm().result.fields);
+    expect(await applyFields(plan.assignments)).toMatchObject({ success: 1, failed: 0 });
+  });
+
+  it('copies and fills fields inside an open shadow root with scoped selectors', async () => {
+    document.body.innerHTML = '<div id="form-host"></div>';
+    const root = document.querySelector<HTMLElement>('#form-host')!.attachShadow({ mode: 'open' });
+    root.innerHTML = '<form><label>Title<input name="title" value="inside"></label><label>Notes<div id="notes" contenteditable="true">draft</div></label></form>';
+    const source = capture();
+    expect(source.fields.map((field) => field.value)).toEqual(['inside', 'draft']);
+    expect(source.fields.every((field) => field.selector?.startsWith('shadow:'))).toBe(true);
+    root.querySelector<HTMLInputElement>('input')!.value = '';
+    root.querySelector<HTMLElement>('#notes')!.innerText = '';
+    const plan = buildFillPlan(source, scanForm().result.fields);
+    expect(await applyFields(plan.assignments)).toMatchObject({ success: 2, failed: 0 });
+    expect(scanForm().result.fields.map((field) => field.value)).toEqual(['inside', 'draft']);
+  });
+
+  it('does not copy a shadow form hidden by its host', () => {
+    document.body.innerHTML = '<div id="hidden-host" style="display:none"></div><form><input name="visible" value="right"></form>';
+    document.querySelector<HTMLElement>('#hidden-host')!.attachShadow({ mode: 'open' }).innerHTML = '<form><input name="hidden" value="wrong"></form>';
+    expect(scanForm().result.fields.map((field) => field.name)).toEqual(['visible']);
+  });
+
+  it('copies a field assigned to a slot inside a shadow form', async () => {
+    document.body.innerHTML = '<div id="host"><input slot="field" name="slotted" value="inside"></div>';
+    document.querySelector<HTMLElement>('#host')!.attachShadow({ mode: 'open' }).innerHTML = '<form><slot name="field"></slot></form>';
+    const source = capture();
+    expect(source.fields.map((field) => field.name)).toEqual(['slotted']);
+    document.querySelector<HTMLInputElement>('[name="slotted"]')!.value = '';
+    const plan = buildFillPlan(source, scanForm().result.fields);
+    expect(await applyFields(plan.assignments)).toMatchObject({ success: 1, failed: 0 });
+  });
+
+  it('keeps repeated field names distinct across shadow roots', () => {
+    document.body.innerHTML = '<main><div id="first"></div><div id="second"></div></main>';
+    for (const id of ['first', 'second']) {
+      document.getElementById(id)!.attachShadow({ mode: 'open' }).innerHTML = `<input name="item" value="${id}">`;
+    }
+    const fields = scanForm().result.fields;
+    expect(fields.map((field) => field.value)).toEqual(['first', 'second']);
+    expect(new Set(fields.map((field) => field.key)).size).toBe(2);
+    expect(new Set(fields.map((field) => field.selector)).size).toBe(2);
+  });
+
+  it('copies and fills a native radio group inside a shadow root', async () => {
+    document.body.innerHTML = '<div id="radio-host"></div>';
+    const root = document.querySelector<HTMLElement>('#radio-host')!.attachShadow({ mode: 'open' });
+    root.innerHTML = '<form><label>One<input type="radio" name="choice" value="one"></label><label>Two<input type="radio" name="choice" value="two" checked></label></form>';
+    const source = capture();
+    expect(source.fields.map((field) => field.value)).toEqual(['two']);
+    root.querySelector<HTMLInputElement>('[value="two"]')!.checked = false;
+    const plan = buildFillPlan(source, scanForm().result.fields);
+    expect(await applyFields(plan.assignments)).toMatchObject({ success: 1, failed: 0 });
+    expect(root.querySelector<HTMLInputElement>('[value="two"]')!.checked).toBe(true);
+  });
+
+  it('copies and fills a custom select whose options live in a shadow root', async () => {
+    document.body.innerHTML = '<div id="kind" class="ant-select"></div>';
+    const host = document.querySelector<HTMLElement>('#kind')!;
+    const root = host.attachShadow({ mode: 'open' });
+    root.innerHTML = '<span class="ant-select-selection-item">Option B</span>';
+    const source = capture();
+    expect(source.fields.map((field) => field.value)).toEqual(['Option B']);
+    root.querySelector('span')!.textContent = 'Option A';
+    host.addEventListener('click', () => {
+      if (root.querySelector('[role="listbox"]')) return;
+      const popup = document.createElement('div');
+      popup.setAttribute('role', 'listbox');
+      popup.innerHTML = '<div role="option">Option B</div>';
+      popup.querySelector('[role="option"]')!.addEventListener('click', () => {
+        root.querySelector('span')!.textContent = 'Option B';
+        popup.remove();
+      });
+      root.append(popup);
+    });
+    const plan = buildFillPlan(source, scanForm().result.fields);
+    expect(await applyFields(plan.assignments)).toMatchObject({ success: 1, failed: 0 });
+  });
+
   it('keeps repeated names distinct and fills each row with its own value', async () => {
     document.body.innerHTML = '<form><label>Item<input name="item" value="first"></label><label>Item<input name="item" value="second"></label></form>';
     const item = capture();

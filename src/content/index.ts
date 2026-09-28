@@ -1,5 +1,5 @@
 import { applyFields } from './apply-fields';
-import { scanForm } from './scanner/form-scanner';
+import { isFocusedScannedForm, scanForm } from './scanner/form-scanner';
 import { registerPageShortcuts } from './shortcut';
 import type { ContentRequest, ContentResponse } from '../shared/messaging/messages';
 
@@ -28,7 +28,8 @@ const showToast = (message: string, tone: 'success' | 'error' = 'success'): void
 const handleRequest = async (request: ContentRequest): Promise<ContentResponse> => {
   try {
     if (request.type === 'SCAN_FORM') {
-      return { ok: true, scan: scanForm().result };
+      const scanned = scanForm();
+      return { ok: true, scan: scanned.result, focused: isFocusedScannedForm(scanned) };
     }
     if (request.type === 'APPLY_FIELDS') {
       return { ok: true, report: await applyFields(request.assignments, request.expectedTarget) };

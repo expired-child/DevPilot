@@ -1,4 +1,5 @@
 import { CUSTOM_SELECT_INPUT_HOST_SELECTOR, DIALOG_SCOPE_SELECTOR, VISUALLY_REPLACED_SELECTOR } from './control-selectors';
+import { closestComposed, composedParent, querySelectorAllDeep } from './composed-dom';
 import { resolveLabel } from './label-resolver';
 import { isRendered } from './visibility';
 
@@ -43,14 +44,14 @@ const descriptor = (element: FormControlElement): string =>
     .join(' ');
 
 const isVisible = (element: FormControlElement): boolean => {
-  if (element.hidden || element.closest('[hidden], [aria-hidden="true"]')) {
+  if (element.hidden || closestComposed(element, '[hidden], [aria-hidden="true"]')) {
     return false;
   }
   const style = getComputedStyle(element);
   const visuallyReplacedControl = element instanceof HTMLInputElement
     ? element.type === 'checkbox' || element.type === 'radio'
-      ? element.closest<HTMLElement>(VISUALLY_REPLACED_SELECTOR)
-      : element.closest<HTMLElement>(CUSTOM_SELECT_INPUT_HOST_SELECTOR)
+      ? closestComposed(element, VISUALLY_REPLACED_SELECTOR)
+      : closestComposed(element, CUSTOM_SELECT_INPUT_HOST_SELECTOR)
     : null;
   if (
     style.display === 'none' ||
@@ -107,17 +108,17 @@ const isLoginPasswordField = (element: FormControlElement): boolean => {
   if (businessMaskedLabelPattern.test(safeResolveLabel(element) ?? '')) {
     return false;
   }
-  const form = element.closest('form');
-  if (!form || typeof form.querySelector !== 'function' || typeof form.querySelectorAll !== 'function') {
+  const form = closestComposed<HTMLFormElement>(element, 'form');
+  if (!form) {
     return false;
   }
-  if (!form.querySelector('input[type="password"]')) {
+  if (querySelectorAllDeep(form, 'input[type="password"]').length === 0) {
     return false;
   }
-  if (form.querySelectorAll('input, textarea, select').length > LOGIN_FORM_CONTROL_LIMIT) {
+  if (querySelectorAllDeep(form, 'input, textarea, select').length > LOGIN_FORM_CONTROL_LIMIT) {
     return false;
   }
-  return [...form.querySelectorAll<HTMLInputElement>('input')].some((input) => {
+  return querySelectorAllDeep<HTMLInputElement>(form, 'input').some((input) => {
     const autocomplete = input.getAttribute('autocomplete');
     return autocomplete === 'username' || accountPattern.test(descriptor(input));
   });
@@ -147,13 +148,14 @@ export class DefaultFieldFilter implements FieldFilter {
       return false;
     }
 
-    const excludedArea = element.closest('header, nav, [role="search"], [role="navigation"]');
+    const excludedArea = closestComposed(element, 'header, nav, [role="search"], [role="navigation"]');
     if (excludedArea) {
       return false;
     }
 
     let container: HTMLElement | null = element;
-    while (container && container !== scope.parentElement) {
+    const boundary = composedParent(scope);
+    while (container && container !== boundary) {
       const containerDescriptor = `${container.id} ${container.className}`;
       // 编辑弹窗可能复用查询表单组件，不能仅凭 query-form/filter-form 类名排除业务字段。
       if (
@@ -162,7 +164,7 @@ export class DefaultFieldFilter implements FieldFilter {
       ) {
         return false;
       }
-      container = container.parentElement;
+      container = composedParent(container);
     }
     return true;
   }

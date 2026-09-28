@@ -11,7 +11,7 @@ export type ContentRequest =
   | { type: 'SHOW_TOAST'; message: string; tone?: 'success' | 'error' };
 
 export type ContentResponse =
-  | { ok: true; scan: FormScanResult }
+  | { ok: true; scan: FormScanResult; focused: boolean }
   | { ok: true; report: FillReport }
   | { ok: true }
   | { ok: false; error: string };

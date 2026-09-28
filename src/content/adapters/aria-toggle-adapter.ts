@@ -1,5 +1,6 @@
 import type { FormValue } from '../../modules/form-clipboard/clipboard-types';
 import { ARIA_RADIO_GROUP_SELECTOR, ARIA_RADIO_SELECTOR } from '../scanner/control-selectors';
+import { closestComposed, querySelectorAllDeep } from '../scanner/composed-dom';
 import type { FormControlElement } from '../scanner/field-filter';
 import { dispatchValueEvents, type FieldAdapter } from './field-adapter';
 
@@ -30,9 +31,9 @@ const isNativeControl = (element: FormControlElement): boolean =>
 
 /** 找到 ARIA 单选组内的全部候选项；没有 radiogroup 容器时退化为元素自身。 */
 export const findAriaRadioGroup = (element: HTMLElement): HTMLElement[] => {
-  const group = element.closest<HTMLElement>(ARIA_RADIO_GROUP_SELECTOR);
+  const group = closestComposed(element, ARIA_RADIO_GROUP_SELECTOR);
   if (group) {
-    return [...group.querySelectorAll<HTMLElement>(ARIA_RADIO_SELECTOR)];
+    return querySelectorAllDeep(group, ARIA_RADIO_SELECTOR);
   }
   return [element];
 };

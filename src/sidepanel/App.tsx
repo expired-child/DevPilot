@@ -21,7 +21,8 @@ import { ClipboardPage } from './pages/ClipboardPage';
 import { PastePreviewPage } from './pages/PastePreviewPage';
 
 type View = { page: 'list' } | { page: 'bookmarks' } | { page: 'detail'; itemId: string } | {
-  page: 'preview'; itemId: string; targetTabId: number; targetSnapshot: FormTargetSnapshot;
+  page: 'preview'; itemId: string; targetTabId: number; targetFrameId: number;
+  targetDocumentId?: string; targetSnapshot: FormTargetSnapshot;
   targetFields: FormField[]; targetTitle?: string;
 };
 
@@ -36,15 +37,17 @@ const errorText = (error: unknown): string =>
 const scanPreview = async (itemId: string): Promise<Extract<View, { page: 'preview' }>> => {
   const tab = await getActiveTab();
   const target = await scanTab(tab.id!);
-  if (target.fields.length === 0) throw new Error('当前页面没有可填充的表单字段');
+  const { scan } = target;
+  if (scan.fields.length === 0) throw new Error('当前页面没有可填充的表单字段');
   return {
     page: 'preview', itemId, targetTabId: tab.id!,
+    targetFrameId: target.frameId, targetDocumentId: target.documentId,
     targetSnapshot: {
-      url: target.source.url,
-      fingerprint: createFingerprint(target.source.host, target.fields),
+      url: scan.source.url,
+      fingerprint: createFingerprint(scan.source.host, scan.fields),
     },
-    targetFields: target.fields,
-    targetTitle: target.source.title,
+    targetFields: scan.fields,
+    targetTitle: scan.source.title,
   };
 };
 
@@ -132,7 +135,7 @@ export function App() {
 
   const copyCurrent = async (): Promise<void> => {
     try {
-      const scan = await scanActiveTab();
+      const { scan } = await scanActiveTab();
       if (scan.fields.length === 0) throw new Error('当前页面没有可复制的表单字段');
       const captured = await service.capture(scan);
       await reload();
@@ -161,7 +164,7 @@ export function App() {
       if (tab.id !== view.targetTabId) throw new Error('目标标签页已切换，请重新扫描当前页。');
       const response = await sendToTab(view.targetTabId, {
         type: 'APPLY_FIELDS', assignments, expectedTarget: view.targetSnapshot,
-      });
+      }, view.targetDocumentId ? { documentId: view.targetDocumentId } : { frameId: view.targetFrameId });
       if (!response.ok || !('report' in response)) throw new Error(response.ok ? '未获取到填充结果' : response.error);
       const report: FillReport = {
         ...response.report,

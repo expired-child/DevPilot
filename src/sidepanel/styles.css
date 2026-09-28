@@ -41,6 +41,7 @@ h1, h2, p { margin: 0; }
 .text-button { padding: 4px; color: #5d6270; background: transparent; font-size: 12px; }
 .text-button.danger { color: #ba4650; }
 .icon-button { width: 34px; height: 34px; color: #32353c; background: #e9e9e5; font-size: 18px; }
+.bookmark-close { flex: none; margin-left: auto; }
 .button-row { display: flex; gap: 8px; margin-top: 10px; }
 .save-state { align-self: center; color: #6c707a; font-size: 12px; }
 

@@ -14,6 +14,7 @@ import {
   matchesDropdownClassToken,
   SELECTED_VALUE_SELECTOR,
 } from '../scanner/control-selectors';
+import { closestComposed, composedParent, querySelectorAllDeep } from '../scanner/composed-dom';
 import type { FormControlElement } from '../scanner/field-filter';
 import { dispatchValueEvents, setNativeValue, type FieldAdapter } from './field-adapter';
 import { findDatePickerRoot } from './date-picker-adapter';
@@ -38,7 +39,7 @@ const isGenericDropdownContainer = (element: HTMLElement): boolean =>
  */
 export const findGenericDropdownRoot = (element: HTMLElement): HTMLElement | null => {
   let current: HTMLElement | null = element;
-  for (let depth = 0; current && depth < GENERIC_DROPDOWN_MAX_DEPTH; depth += 1, current = current.parentElement) {
+  for (let depth = 0; current && depth < GENERIC_DROPDOWN_MAX_DEPTH; depth += 1, current = composedParent(current)) {
     if (isGenericDropdownContainer(current)) {
       return current;
     }
@@ -52,16 +53,16 @@ export const findCustomSelectRoot = (element: HTMLElement): HTMLElement | null =
     return null;
   }
 
-  const frameworkRoot = element.closest<HTMLElement>(CUSTOM_SELECT_ROOT_SELECTOR);
+  const frameworkRoot = closestComposed(element, CUSTOM_SELECT_ROOT_SELECTOR);
   if (frameworkRoot) {
     return frameworkRoot;
   }
 
-  const combobox = element.matches(COMBOBOX_SELECTOR) ? element : element.closest<HTMLElement>(COMBOBOX_SELECTOR);
+  const combobox = element.matches(COMBOBOX_SELECTOR) ? element : closestComposed(element, COMBOBOX_SELECTOR);
   if (combobox) {
-    let current = combobox.parentElement;
-    for (let depth = 0; current && depth < 4; depth += 1, current = current.parentElement) {
-      if (current.querySelector('[class*="singleValue"], [class*="indicatorsContainer"]')) {
+    let current = composedParent(combobox);
+    for (let depth = 0; current && depth < 4; depth += 1, current = composedParent(current)) {
+      if (querySelectorAllDeep(current, '[class*="singleValue"], [class*="indicatorsContainer"]').length) {
         return current;
       }
     }
@@ -73,14 +74,14 @@ export const findCustomSelectRoot = (element: HTMLElement): HTMLElement | null =
 
 /** 命中已知框架类名的下拉才是「确定」的下拉，通用探测命中的只能算疑似。 */
 const isDefiniteSelect = (element: FormControlElement): boolean =>
-  Boolean(element.closest<HTMLElement>(CUSTOM_SELECT_ROOT_SELECTOR)) ||
+  Boolean(closestComposed(element, CUSTOM_SELECT_ROOT_SELECTOR)) ||
   element.matches(COMBOBOX_SELECTOR) ||
-  Boolean(element.closest<HTMLElement>(COMBOBOX_SELECTOR));
+  Boolean(closestComposed(element, COMBOBOX_SELECTOR));
 
 export const readSelectedText = (root: ParentNode): FormValue => {
   const selected = [
     ...new Set(
-      [...root.querySelectorAll<HTMLElement>(SELECTED_VALUE_SELECTOR)]
+      querySelectorAllDeep(root, SELECTED_VALUE_SELECTOR)
         .map((element) => text(element.textContent))
         .filter(Boolean),
     ),
@@ -98,12 +99,12 @@ export const readSelectedText = (root: ParentNode): FormValue => {
     rootElement.matches(`${COMBOBOX_SELECTOR}, .MuiSelect-select`)
   ) {
     const ariaValue = rootElement.getAttribute('aria-valuetext');
-    if (ariaValue || (!rootElement.querySelector('input') && text(rootElement.textContent))) {
-      return ariaValue || text(rootElement.textContent);
+    if (ariaValue || (querySelectorAllDeep(root, 'input').length === 0 && text(rootElement.innerText))) {
+      return ariaValue || text(rootElement.innerText);
     }
   }
 
-  const input = root.querySelector<HTMLInputElement>('input');
+  const input = querySelectorAllDeep<HTMLInputElement>(root, 'input')[0];
   return input?.value ?? '';
 };
 
@@ -129,10 +130,10 @@ export const findMatchingOption = (
 
 const isVisible = (option: HTMLElement): boolean => {
   const style = getComputedStyle(option);
-  const popup = option.closest<HTMLElement>(DROPDOWN_POPUP_SELECTOR);
+  const popup = closestComposed(option, DROPDOWN_POPUP_SELECTOR);
   const popupStyle = popup ? getComputedStyle(popup) : null;
   return (
-    !option.closest(DROPDOWN_HIDDEN_SELECTOR) &&
+    !closestComposed(option, DROPDOWN_HIDDEN_SELECTOR) &&
     style.display !== 'none' &&
     style.visibility !== 'hidden' &&
     popupStyle?.display !== 'none' &&
@@ -142,7 +143,7 @@ const isVisible = (option: HTMLElement): boolean => {
 };
 
 const visibleOptions = (): HTMLElement[] =>
-  [...document.querySelectorAll<HTMLElement>(DROPDOWN_OPTION_SELECTOR)].filter(isVisible);
+  querySelectorAllDeep(document, DROPDOWN_OPTION_SELECTOR).filter(isVisible);
 
 /**
  * 自研下拉的通用选项探测：框架类名表覆盖不到时（如 ehi-select teleport 浮层），
@@ -150,10 +151,10 @@ const visibleOptions = (): HTMLElement[] =>
  * 避免把页面上普通的列表项当成下拉选项。
  */
 export const visibleGenericOptions = (): HTMLElement[] =>
-  [...document.querySelectorAll<HTMLElement>(GENERIC_OPTION_SELECTOR)].filter(
+  querySelectorAllDeep(document, GENERIC_OPTION_SELECTOR).filter(
     (option) =>
       isVisible(option) &&
-      (option.matches('[role="option"]') || Boolean(option.closest(GENERIC_POPUP_SELECTOR))),
+      (option.matches('[role="option"]') || Boolean(closestComposed(option, GENERIC_POPUP_SELECTOR))),
   );
 
 const clickOption = (option: HTMLElement): void => {
@@ -163,7 +164,7 @@ const clickOption = (option: HTMLElement): void => {
 
 /** 在触发区上模拟一次用户点击：展开与收起都是它（toggle 行为）。 */
 const toggleSelect = (root: HTMLElement, element: FormControlElement): void => {
-  const trigger = root.querySelector<HTMLElement>(DROPDOWN_TRIGGER_SELECTOR) ?? element;
+  const trigger = querySelectorAllDeep(root, DROPDOWN_TRIGGER_SELECTOR)[0] ?? element;
   trigger.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, composed: true }));
   trigger.click();
 };
@@ -248,7 +249,7 @@ export class CustomSelectAdapter implements FieldAdapter {
     if (!isDefiniteSelect(element)) {
       const input = element instanceof HTMLInputElement
         ? element
-        : root.querySelector<HTMLInputElement>('input');
+        : querySelectorAllDeep<HTMLInputElement>(root, 'input')[0];
       if (input) {
         setNativeValue(input, values.join(','));
         dispatchValueEvents(input);
