@@ -13,6 +13,10 @@ interface Props {
   onClear(): Promise<void>;
   replacementPending: boolean;
   onReplacementToggle(enabled: boolean): Promise<void>;
+  replacementDraft: ReplacementRule[] | null;
+  replacementDraftConflict: boolean;
+  onReplacementDraftChange(rules: ReplacementRule[] | null): void;
+  onReplacementDraftRebase(): void;
   onSaveReplacementRules(rules: ReplacementRule[]): Promise<void>;
 }
 
@@ -52,7 +56,7 @@ function HistoryItem({ item, current, onPaste, onDetail }: { item: FormClipboard
   );
 }
 
-export function ClipboardPage({ state, onCopy, onPaste, onDetail, onBookmarks, onClear, replacementPending, onReplacementToggle, onSaveReplacementRules }: Props) {
+export function ClipboardPage({ state, onCopy, onPaste, onDetail, onBookmarks, onClear, replacementPending, onReplacementToggle, replacementDraft, replacementDraftConflict, onReplacementDraftChange, onReplacementDraftRebase, onSaveReplacementRules }: Props) {
   const [query, setQuery] = useState('');
   const current = state.history.find((item) => item.id === state.currentId);
   const results = useMemo(() => searchHistory(state.history, query), [state.history, query]);
@@ -66,7 +70,16 @@ export function ClipboardPage({ state, onCopy, onPaste, onDetail, onBookmarks, o
 
       <button className="secondary-button full bookmark-entry" onClick={onBookmarks}>⌕ 书签搜索</button>
 
-      <GlobalReplacementSettings settings={state.settings} togglePending={replacementPending} onToggle={onReplacementToggle} onSave={onSaveReplacementRules} />
+      <GlobalReplacementSettings
+        settings={state.settings}
+        togglePending={replacementPending}
+        onToggle={onReplacementToggle}
+        draft={replacementDraft}
+        draftConflict={replacementDraftConflict}
+        onDraftChange={onReplacementDraftChange}
+        onDraftRebase={onReplacementDraftRebase}
+        onSave={onSaveReplacementRules}
+      />
 
       <section className="current-section">
         <span className="eyebrow">最近复制</span>

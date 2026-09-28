@@ -1,5 +1,6 @@
 import { getFieldAdapter } from './adapters';
 import { scanForm, type ScannedField } from './scanner/form-scanner';
+import { scopeElement } from './scanner/scope-registry';
 import type { FieldAssignment, FillReport, FormTargetSnapshot, FormValue } from '../modules/form-clipboard/clipboard-types';
 import { createFingerprint } from '../modules/form-clipboard/fingerprint';
 
@@ -77,8 +78,14 @@ const findTarget = async (
 };
 
 export const applyFields = async (assignments: FieldAssignment[], expectedTarget?: FormTargetSnapshot): Promise<FillReport> => {
+  // 带作用域标识时必须找回扫描时的同一个表单容器；
+  // 作用域已被重渲染替换就拒绝填充，不自动换选其他表单。
+  const lockedScope = expectedTarget?.scopeId ? scopeElement(expectedTarget.scopeId) : undefined;
+  if (expectedTarget?.scopeId && (!lockedScope || !lockedScope.isConnected)) {
+    throw new Error('目标表单已变化，请重新扫描后再填充。');
+  }
   // 整次填充锁定表单；控件失焦或下拉弹出后不能转而扫描其他表单。
-  const scanned = scanForm();
+  const scanned = scanForm(document, undefined, lockedScope);
   if (expectedTarget && (
     scanned.result.source.url !== expectedTarget.url ||
     createFingerprint(scanned.result.source.host, scanned.result.fields) !== expectedTarget.fingerprint

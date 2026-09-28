@@ -31,6 +31,8 @@ h1, h2, p { margin: 0; }
 .current-card .field-summary { margin-bottom: 14px; }
 .copy-hint { margin-top: 8px; color: #696d77; font-size: 12px; line-height: 1.45; }
 .empty-card { padding: 22px; color: #8b8e96; text-align: center; font-size: 13px; }
+.recommended-badge { flex: none; padding: 1px 6px; border-radius: 8px; background: #e3ecfd; color: #1d4fa8; font-size: 11px; font-weight: 600; }
+.visually-hidden { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0; }
 
 .primary-button, .secondary-button, .small-button, .text-button, .icon-button { border: 0; border-radius: 10px; }
 .primary-button { width: 100%; padding: 11px 14px; color: #fff; background: #1f232c; font-weight: 700; box-shadow: 0 5px 14px rgba(31,35,44,.14); }
@@ -156,6 +158,7 @@ h1, h2, p { margin: 0; }
   .secondary-button, .small-button, .icon-button, .search-box, .stats div { color: #e6e6e2; background: #2b2d32; }
   .secondary-button.full { color: #e6e6e2; background: #2b2d32; }
   .history-item:hover, .history-item:focus-within, .history-item.active { background: #2b2d32; }
+  .recommended-badge { background: #24354f; color: #9dc0f8; }
   .search-box input { color: #e6e6e2; }
   .search-box input::placeholder { color: #b3b6bf; }
   .brand-header p, .field-label, .field-label small, .value-preview, .result-card > p, .result-card > div { color: #b3b6bf; }

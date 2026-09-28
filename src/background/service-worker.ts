@@ -1,14 +1,18 @@
 import { ClipboardService } from '../modules/form-clipboard/clipboard-service';
 import { ChromeClipboardRepository } from '../modules/form-clipboard/clipboard-repository';
+import { ClipboardWriteCoordinator, registerClipboardCommands } from './clipboard-coordinator';
 import { buildFillPlan } from '../modules/form-clipboard/fill-plan-service';
+import { topSkipReason } from '../modules/form-clipboard/fill-feedback';
 import { createFingerprint } from '../modules/form-clipboard/fingerprint';
 import type { FillReport } from '../modules/form-clipboard/clipboard-types';
-import { getActiveTab, scanTab, sendToTab } from '../shared/messaging/tab-messaging';
+import { getActiveTab, listFormCandidates, scanScope, sendToTab, uniqueCandidate } from '../shared/messaging/tab-messaging';
 import { BOOKMARK_SEARCH_TRIGGER, type BookmarkSearchTrigger } from '../shared/constants';
 import { registerCommands, type CommandHandlers } from './commands';
 import { registerContextMenus } from './context-menu';
 
-const clipboard = new ClipboardService(new ChromeClipboardRepository());
+const repository = new ChromeClipboardRepository();
+const clipboard = new ClipboardWriteCoordinator(new ClipboardService(repository));
+registerClipboardCommands(clipboard);
 
 const targetTab = async (tab?: chrome.tabs.Tab): Promise<chrome.tabs.Tab> => tab?.id ? tab : getActiveTab();
 
@@ -45,15 +49,24 @@ const errorText = (error: unknown): string => {
     : message;
 };
 
+/** 快捷键/右键菜单的目标解析：焦点或弹窗能唯一确定时直接执行，无法唯一确定时不猜测。 */
+const resolveActionTarget = async (tabId: number, emptyMessage: string) => {
+  const options = (await listFormCandidates(tabId)).filter((option) => option.fieldCount > 0);
+  if (options.length === 0) {
+    throw new Error(emptyMessage);
+  }
+  const chosen = uniqueCandidate(options);
+  if (!chosen) {
+    throw new Error(`当前页面有 ${options.length} 个表单，无法确定目标；请先点击目标表单的输入框，或打开侧栏选择。`);
+  }
+  return scanScope(tabId, chosen);
+};
+
 const copy = async (tab?: chrome.tabs.Tab): Promise<void> => {
   const currentTab = await targetTab(tab);
   try {
-    const target = await scanTab(currentTab.id!);
-    const { scan } = target;
-    if (scan.fields.length === 0) {
-      throw new Error('当前页面没有可复制的表单字段');
-    }
-    const item = await clipboard.capture(scan);
+    const target = await resolveActionTarget(currentTab.id!, '当前页面没有可复制的表单字段');
+    const item = await clipboard.capture(target.scan);
     await toast(currentTab.id, `已复制表单 · ${item.name} · ${item.fields.length} 个字段`, 'success',
       target.documentId ? { documentId: target.documentId } : { frameId: target.frameId });
   } catch (error) {
@@ -67,7 +80,7 @@ const paste = async (tab?: chrome.tabs.Tab): Promise<void> => {
   const tabId = currentTab.id;
   try {
     console.debug('[DevPilot] paste:start', { tabId });
-    const state = await clipboard.getState();
+    const state = await repository.get();
     const item = state.history.find((entry) => entry.id === state.currentId);
     if (!item) {
       await toast(tabId, '表单剪贴板为空，请先在 DevPilot 侧栏复制表单', 'error');
@@ -75,7 +88,7 @@ const paste = async (tab?: chrome.tabs.Tab): Promise<void> => {
     }
     console.debug('[DevPilot] paste:item', { id: item.id, fields: item.fields.length });
 
-    const target = await scanTab(tabId!);
+    const target = await resolveActionTarget(tabId!, '当前页面没有可填充的表单字段');
     const { scan } = target;
     console.debug('[DevPilot] paste:target', { fields: scan.fields.length });
 
@@ -88,8 +101,15 @@ const paste = async (tab?: chrome.tabs.Tab): Promise<void> => {
       missingVariables: plan.missingVariables,
     });
 
+    // 与预览页一致：只要有缺失变量就不执行任何填充，避免半张表单已改、另一半仍未填写。
+    if (plan.missingVariables.length > 0) {
+      await toast(tabId, `缺少变量：${plan.missingVariables.join('、')}；请在侧栏预览并填写`, 'error');
+      return;
+    }
+
     if (plan.assignments.length === 0) {
-      await toast(tabId, `没有可填充的字段（跳过 ${plan.skipped.length} 个）`, 'error');
+      const top = topSkipReason(plan.skipped);
+      await toast(tabId, `没有可填充的字段（跳过 ${plan.skipped.length} 个）${top ? `：${top.reason}${top.count > 1 ? ` · ${top.count} 个字段` : ''}` : ''}`, 'error');
       return;
     }
 
@@ -99,6 +119,7 @@ const paste = async (tab?: chrome.tabs.Tab): Promise<void> => {
       expectedTarget: {
         url: scan.source.url,
         fingerprint: createFingerprint(scan.source.host, scan.fields),
+        scopeId: scan.scopeId,
       },
     }, target.documentId ? { documentId: target.documentId } : { frameId: target.frameId });
     if (!response.ok || !('report' in response)) {

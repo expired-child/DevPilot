@@ -7,6 +7,7 @@ import type {
   FormField,
   FormScanResult,
 } from '../../modules/form-clipboard/clipboard-types';
+import type { FormCandidateSummary } from '../../shared/messaging/messages';
 import {
   ARIA_RADIO_GROUP_SELECTOR,
   ARIA_TOGGLE_SELECTOR,
@@ -19,6 +20,7 @@ import {
 import { DefaultFieldFilter, type FieldFilter, type FormControlElement } from './field-filter';
 import { closestComposed, composedParent, containsComposed, deepActiveElement, querySelectorAllDeep } from './composed-dom';
 import { resolveLabel } from './label-resolver';
+import { scopeIdOf } from './scope-registry';
 import { isRendered } from './visibility';
 
 export interface ScannedField {
@@ -380,6 +382,69 @@ export const scanForm = (
         host: location.host,
       },
       fields,
+      scopeId: scopeIdOf(scope),
     },
   };
+};
+
+/**
+ * 列出当前 frame 的候选表单：复用 chooseScope 的可见性、弹窗与焦点规则所用的识别基础，
+ * 去重控件集合相同的嵌套作用域（如弹窗容器与其内部 <form>），只返回概要不返回字段值。
+ */
+export const listFormCandidates = (
+  filter: FieldFilter = new DefaultFieldFilter(),
+): FormCandidateSummary[] => {
+  const formSelector = 'form, [role="form"], .ant-form, .el-form';
+  const sameControls = (left: Set<HTMLElement>, right: Set<HTMLElement>): boolean =>
+    left.size === right.size && [...left].every((element) => right.has(element));
+  const candidates = [...new Set(querySelectorAllDeep(document, FORM_SCOPE_SELECTOR))]
+    .filter(isRendered)
+    .map((scope) => {
+      const scanned = scanForm(document, filter, scope);
+      return { scope, scanned, controls: new Set(scanned.controls.map(({ element }) => element)) };
+    })
+    .filter(({ controls }) => controls.size > 0);
+  // 无显式表单容器的普通页面沿用旧扫描路径，不丢失直接放在 body 下的字段。
+  if (candidates.length === 0) {
+    const scanned = scanForm(document, filter, document.body);
+    if (scanned.controls.length > 0) {
+      candidates.push({
+        scope: document.body,
+        scanned,
+        controls: new Set(scanned.controls.map(({ element }) => element)),
+      });
+    }
+  }
+  const hasBusinessCandidate = candidates.some(({ scope }) => scopePenalty(scope) < 100);
+  const eligibleCandidates = hasBusinessCandidate
+    ? candidates.filter(({ scope }) => scopePenalty(scope) < 100 || scope.matches(DIALOG_SCOPE_SELECTOR))
+    : candidates;
+  const concreteForms = eligibleCandidates.filter(({ scope }) => scope.matches(formSelector));
+  // 弹窗优先保留操作边界；普通 form 优先于 main 等泛容器。
+  eligibleCandidates.sort((left, right) => {
+    const priority = (scope: HTMLElement): number =>
+      scope.matches(DIALOG_SCOPE_SELECTOR) ? 0 : scope.matches(formSelector) ? 1 : 2;
+    return priority(left.scope) - priority(right.scope);
+  });
+  const seenControls: Array<Set<HTMLElement>> = [];
+  const summaries: FormCandidateSummary[] = [];
+  for (const { scope, scanned, controls } of eligibleCandidates) {
+    const innerForms = concreteForms
+      .filter((entry) => entry.scope !== scope && containsComposed(scope, entry.scope))
+      .map((entry) => entry.controls)
+      .filter((entry, index, all) => all.findIndex((other) => sameControls(entry, other)) === index);
+    // main、弹窗等外层容器不能把两个独立表单合成一个候选。
+    if (innerForms.length > 1 || seenControls.some((entry) => sameControls(entry, controls))) continue;
+    seenControls.push(controls);
+    summaries.push({
+      scopeId: scopeIdOf(scope),
+      title: scanned.result.suggestedName,
+      fieldCount: scanned.result.fields.length,
+      fieldLabels: scanned.result.fields.slice(0, 3).map((field) => field.label || field.name || field.key),
+      dialog: scope.matches(DIALOG_SCOPE_SELECTOR),
+      focused: isFocusedScannedForm(scanned),
+      source: scanned.result.source,
+    });
+  }
+  return summaries;
 };

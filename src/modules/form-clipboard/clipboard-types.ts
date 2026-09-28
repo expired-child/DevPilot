@@ -49,11 +49,15 @@ export interface FormScanResult {
   suggestedName?: string;
   source: FormSource;
   fields: FormField[];
+  /** 内容脚本为本次文档生成的作用域标识；只在当前页面会话与消息中使用，不写入历史。 */
+  scopeId?: string;
 }
 
 export interface FormTargetSnapshot {
   url: string;
   fingerprint: string;
+  /** 与扫描时相同的作用域标识；填充时用它找回同一个表单容器。 */
+  scopeId?: string;
 }
 
 export interface FormClipboardItem {

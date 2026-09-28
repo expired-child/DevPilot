@@ -1,5 +1,6 @@
 import { applyFields } from './apply-fields';
-import { isFocusedScannedForm, scanForm } from './scanner/form-scanner';
+import { listFormCandidates, isFocusedScannedForm, scanForm } from './scanner/form-scanner';
+import { scopeElement } from './scanner/scope-registry';
 import { registerPageShortcuts } from './shortcut';
 import type { ContentRequest, ContentResponse } from '../shared/messaging/messages';
 
@@ -28,8 +29,18 @@ const showToast = (message: string, tone: 'success' | 'error' = 'success'): void
 const handleRequest = async (request: ContentRequest): Promise<ContentResponse> => {
   try {
     if (request.type === 'SCAN_FORM') {
+      if (request.scopeId) {
+        const fixed = scopeElement(request.scopeId);
+        // 作用域已被页面重渲染替换：要求重新扫描，不能退回自动挑选其他表单。
+        if (!fixed || !fixed.isConnected) return { ok: false, error: '目标表单已变化，请重新扫描。' };
+        const fixedScan = scanForm(document, undefined, fixed);
+        return { ok: true, scan: fixedScan.result, focused: isFocusedScannedForm(fixedScan) };
+      }
       const scanned = scanForm();
       return { ok: true, scan: scanned.result, focused: isFocusedScannedForm(scanned) };
+    }
+    if (request.type === 'LIST_FORM_CANDIDATES') {
+      return { ok: true, candidates: listFormCandidates() };
     }
     if (request.type === 'APPLY_FIELDS') {
       return { ok: true, report: await applyFields(request.assignments, request.expectedTarget) };
