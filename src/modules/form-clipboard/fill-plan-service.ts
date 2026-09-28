@@ -4,11 +4,13 @@ import type {
   FieldDiff,
   FillIssue,
   FormClipboardItem,
+  FormClipboardSettings,
   FormField,
   FormValue,
 } from './clipboard-types';
 import { createDiff } from './diff-service';
 import { renderTemplate } from './template-service';
+import { applyReplacementRules, defaultReplacementRules } from './replacement-service';
 
 export interface FillPlanOptions {
   /** 模板变量，缺省回退到 item.variables。 */
@@ -21,6 +23,8 @@ export interface FillPlanOptions {
   usedValues?: Iterable<string>;
   /** 本次粘贴不填写的源字段 key，缺省使用 item.excludedFieldKeys。 */
   excludedKeys?: Iterable<string>;
+  /** 预览与快捷键均传入当前全局设置，缺省关闭替换。 */
+  settings?: FormClipboardSettings;
 }
 
 export interface FillPlan {
@@ -55,7 +59,7 @@ const nextUniqueValue = (base: string, used: Set<string>): string => {
 };
 
 /**
- * 构造填充计划：模板渲染 → 字段匹配 → 生成填充指令与跳过原因。
+ * 构造填充计划：模板渲染 → 输入值替换 → 字段匹配 → 生成填充指令与跳过原因。
  * Service Worker（一键填充）与侧边栏（预览确认）共用同一份逻辑。
  */
 export const buildFillPlan = (
@@ -68,6 +72,8 @@ export const buildFillPlan = (
   const uniqueKeys = new Set(item.uniqueFieldKeys ?? []);
   const used = new Set(options.usedValues ?? []);
   const excluded = new Set(options.excludedKeys ?? item.excludedFieldKeys ?? []);
+  const replacementEnabled = options.settings?.replacementEnabled === true;
+  const globalRules = options.settings?.replacementRules ?? defaultReplacementRules();
 
   const values: Record<string, FormValue> = {};
   const missing = new Set<string>();
@@ -97,13 +103,26 @@ export const buildFillPlan = (
       continue;
     }
 
-    let value: FormValue = rendered.value;
+    let value: string;
+    try {
+      value = rendered.value;
+      if (replacementEnabled) {
+        // 全局规则只转换文本输入，避免改变下拉框、单选框等选项标识。
+        if (['text', 'textarea', 'url', 'email', 'tel', 'number'].includes(field.type)) {
+          value = applyReplacementRules(value, globalRules);
+        }
+        value = applyReplacementRules(value, field.replacementRules);
+      }
+    } catch (error) {
+      skipped.push({ label: labelOf(field), reason: error instanceof Error ? error.message : '输入值替换失败' });
+      continue;
+    }
     if (isChoiceType(field) && isEmptyChoice(value)) {
       skipped.push({ label: labelOf(field), reason: '源字段未选择，已跳过' });
       continue;
     }
-    if (options.autoUnique && uniqueKeys.has(field.key) && rendered.value === field.value) {
-      value = nextUniqueValue(rendered.value, used);
+    if (options.autoUnique && uniqueKeys.has(field.key) && value === field.value) {
+      value = nextUniqueValue(value, used);
       used.add(value);
     }
     values[field.key] = value;

@@ -1,11 +1,12 @@
 import type { FormClipboardState } from './clipboard-types';
+import { defaultReplacementRules } from './replacement-service';
 
 export const STORAGE_KEY = 'formClipboard';
 
 export const defaultClipboardState = (): FormClipboardState => ({
   currentId: null,
   history: [],
-  settings: { historyLimit: 50 },
+  settings: { historyLimit: 50, replacementEnabled: false, replacementRules: defaultReplacementRules() },
   fieldRules: {},
   templates: [],
 });

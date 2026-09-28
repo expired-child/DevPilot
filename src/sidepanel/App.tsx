@@ -24,6 +24,7 @@ export function App() {
   const [state, setState] = useState<FormClipboardState | null>(null);
   const [view, setView] = useState<View>({ page: 'list' });
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
+  const [replacementPending, setReplacementPending] = useState(false);
 
   const reload = useCallback(async (): Promise<FormClipboardState> => {
     const next = await service.getState();
@@ -95,6 +96,18 @@ export function App() {
     }
   };
 
+  const toggleReplacement = async (enabled: boolean): Promise<void> => {
+    setReplacementPending(true);
+    try {
+      await service.setReplacementEnabled(enabled);
+      await reload();
+    } catch (error) {
+      showError(error);
+    } finally {
+      setReplacementPending(false);
+    }
+  };
+
   const confirmFill = async (assignments: FieldAssignment[], skipped: FillIssue[]): Promise<FillReport | null> => {
     try {
       const tab = await getActiveTab();
@@ -119,6 +132,13 @@ export function App() {
       {view.page === 'list' && (
         <ClipboardPage
           state={state}
+          replacementPending={replacementPending}
+          onReplacementToggle={toggleReplacement}
+          onSaveReplacementRules={async (rules) => {
+            await service.saveReplacementRules(rules);
+            await reload();
+            setNotice({ tone: 'success', text: '全局替换规则已保存' });
+          }}
           onCopy={() => void copyCurrent()}
           onPaste={(entry) => void startPaste(entry)}
           onDetail={(entry) => setView({ page: 'detail', itemId: entry.id })}
@@ -130,6 +150,7 @@ export function App() {
       )}
       {view.page === 'detail' && item && (
         <ClipboardDetailPage
+          key={item.id}
           item={item}
           onBack={() => setView({ page: 'list' })}
           onPaste={() => void startPaste(item)}
@@ -164,6 +185,9 @@ export function App() {
       {view.page === 'preview' && item && (
         <PastePreviewPage
           item={item}
+          settings={state.settings}
+          replacementPending={replacementPending}
+          onReplacementToggle={toggleReplacement}
           targetFields={view.targetFields}
           targetTitle={view.targetTitle}
           onBack={() => setView({ page: 'list' })}

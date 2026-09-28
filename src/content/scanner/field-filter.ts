@@ -1,4 +1,4 @@
-import { CUSTOM_SELECT_INPUT_HOST_SELECTOR, VISUALLY_REPLACED_SELECTOR } from './control-selectors';
+import { CUSTOM_SELECT_INPUT_HOST_SELECTOR, DIALOG_SCOPE_SELECTOR, VISUALLY_REPLACED_SELECTOR } from './control-selectors';
 import { resolveLabel } from './label-resolver';
 import { isRendered } from './visibility';
 
@@ -24,7 +24,8 @@ const accountPattern = /user.?name|account|login|logon|账号|用户名|手机|�
  * 用数量阈值把两类场景区分开，避免误伤业务表单。
  */
 const LOGIN_FORM_CONTROL_LIMIT = 6;
-const irrelevantContainerPattern = /global.?search|sidebar.?search|nav.?search|pagination|filter.?form|query.?form/i;
+const irrelevantContainerPattern = /global.?search|sidebar.?search|nav.?search|pagination/i;
+const queryFormContainerPattern = /filter.?form|query.?form/i;
 
 const descriptor = (element: FormControlElement): string =>
   [
@@ -141,7 +142,12 @@ export class DefaultFieldFilter implements FieldFilter {
 
     let container: HTMLElement | null = element;
     while (container && container !== scope.parentElement) {
-      if (irrelevantContainerPattern.test(`${container.id} ${container.className}`)) {
+      const containerDescriptor = `${container.id} ${container.className}`;
+      // 编辑弹窗可能复用查询表单组件，不能仅凭 query-form/filter-form 类名排除业务字段。
+      if (
+        irrelevantContainerPattern.test(containerDescriptor) ||
+        (queryFormContainerPattern.test(containerDescriptor) && !scope.matches(DIALOG_SCOPE_SELECTOR))
+      ) {
         return false;
       }
       container = container.parentElement;
