@@ -13,10 +13,14 @@ export interface FieldFilter {
 }
 
 const sensitivePattern =
-  /password|passwd|pwd|密码|验证码|校验码|短信码|信用卡|银行卡|card.?number|\bcc-|one-time-code|\bcvv\b|\bcvc\b|token|secret|api.?key|access.?key|密钥|令牌/i;
+  /password|passwd|pwd|密码|验证码|校验码|短信码|verification.?code|verify.?code|sms.?code|one.?time.?code|\botp\b|信用卡|银行卡|card.?number|\bcc-|\bcvv\b|\bcvc\b|\bsecret\b|(?:client|api|app|access|auth)[\s_-]*secret|secret[\s_-]*(?:key|value)|api.?key|access.?key|密钥|令牌/i;
+const credentialTokenPattern =
+  /(?:api|access|auth|refresh|session|bearer|csrf|secret)[\s_-]*token|token[\s_-]*(?:key|secret|value)|\btoken\b(?!\s*(?:count|limit|usage|budget|size|length|数量|上限|下限|用量|总数|余额))/i;
+const isSensitiveText = (value: string): boolean => sensitivePattern.test(value) || credentialTokenPattern.test(value);
 
 /** 登录/注册表单中账号类字段的语义特征。 */
-const accountPattern = /user.?name|account|login|logon|账号|用户名|手机|邮箱|email/i;
+const accountPattern = /(?:^|[\s_-])(?:user.?name|user.?id|account(?:.?id|.?name)?|login(?:.?user|.?id|.?name)?|logon|email)(?=$|[\s_-])|账号|用户名|手机|邮箱/i;
+const businessMaskedLabelPattern = /联系电话|手机号|身份证|证件|收款账户|银行账户|phone|mobile|telephone/i;
 
 /**
  * 登录/注册表单的控件数上限。登录表单通常只有账号、密码、验证码、记住我等寥寥几个控件；
@@ -43,7 +47,11 @@ const isVisible = (element: FormControlElement): boolean => {
     return false;
   }
   const style = getComputedStyle(element);
-  const visuallyReplacedControl = element.closest<HTMLElement>(VISUALLY_REPLACED_SELECTOR);
+  const visuallyReplacedControl = element instanceof HTMLInputElement
+    ? element.type === 'checkbox' || element.type === 'radio'
+      ? element.closest<HTMLElement>(VISUALLY_REPLACED_SELECTOR)
+      : element.closest<HTMLElement>(CUSTOM_SELECT_INPUT_HOST_SELECTOR)
+    : null;
   if (
     style.display === 'none' ||
     style.visibility === 'hidden' ||
@@ -76,24 +84,29 @@ const safeResolveLabel = (element: FormControlElement): string | undefined => {
 };
 
 /**
- * password 类型逐字段判断：descriptor 或页面 label 命中敏感语义（密码/验证码/令牌等）才排除；
- * label 为业务语义（联系电话、身份证号、收款账户等）的脱敏输入框照常采集。
+ * password 类型逐字段判断：descriptor 或页面 label 命中敏感语义（密码/验证码/令牌等）时排除；
+ * 没有可解释标签时默认排除。label 为业务语义（联系电话、身份证号、收款账户等）的脱敏输入框照常采集。
  */
 const isSensitivePasswordField = (element: FormControlElement): boolean => {
-  if (sensitivePattern.test(descriptor(element))) {
+  if (isSensitiveText(descriptor(element))) {
     return true;
   }
   const label = safeResolveLabel(element);
-  return Boolean(label && sensitivePattern.test(label));
+  return !label || isSensitiveText(label);
 };
 
 /**
- * 登录/注册场景识别：form 内同时存在 password 输入与账号类字段、且控件总数很少时，
- * 整个表单不采集（隐私承诺）。取代过去「含 password 即排除全表」的连坐规则——
- * 那条规则会把内嵌 Input.Password 脱敏字段的业务表单（往往几十个控件）整体误杀，
- * 进而导致扫描作用域逃逸到弹窗背后的列表页，抓回不存在的幽灵字段。
+ * 登录/注册场景识别：少量账号字段与 password 输入同时出现时，
+ * 即使密码框缺少敏感名称或标签，也只排除密码框。账号字段仍可复制；
+ * 业务表单中用 Input.Password 展示的非密码字段继续按字段语义判断。
  */
-const isLoginFormControl = (element: FormControlElement): boolean => {
+const isLoginPasswordField = (element: FormControlElement): boolean => {
+  if (!(element instanceof HTMLInputElement) || element.type !== 'password') {
+    return false;
+  }
+  if (businessMaskedLabelPattern.test(safeResolveLabel(element) ?? '')) {
+    return false;
+  }
   const form = element.closest('form');
   if (!form || typeof form.querySelector !== 'function' || typeof form.querySelectorAll !== 'function') {
     return false;
@@ -118,8 +131,7 @@ export class DefaultFieldFilter implements FieldFilter {
 
     if (element instanceof HTMLInputElement) {
       const ignoredTypes = new Set(['hidden', 'file', 'button', 'submit', 'reset', 'image']);
-      const customSelectInput = Boolean(element.closest(CUSTOM_SELECT_INPUT_HOST_SELECTOR));
-      if (ignoredTypes.has(element.type) || (element.type === 'search' && !customSelectInput)) {
+      if (ignoredTypes.has(element.type)) {
         return false;
       }
       if (element.type === 'password' && isSensitivePasswordField(element)) {
@@ -127,15 +139,15 @@ export class DefaultFieldFilter implements FieldFilter {
       }
     }
 
-    if (sensitivePattern.test(descriptor(element))) {
+    if (isSensitiveText(descriptor(element)) || isSensitiveText(safeResolveLabel(element) ?? '')) {
       return false;
     }
 
-    if (isLoginFormControl(element)) {
+    if (isLoginPasswordField(element)) {
       return false;
     }
 
-    const excludedArea = element.closest('header, nav, aside, [role="search"], [role="navigation"]');
+    const excludedArea = element.closest('header, nav, [role="search"], [role="navigation"]');
     if (excludedArea) {
       return false;
     }

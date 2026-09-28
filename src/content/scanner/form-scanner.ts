@@ -12,6 +12,7 @@ import {
   ARIA_TOGGLE_SELECTOR,
   CONTROL_COLLECT_SELECTOR,
   DIALOG_SCOPE_SELECTOR,
+  FIELD_CONTAINER_SELECTOR,
   FORM_SCOPE_SELECTOR,
 } from './control-selectors';
 import { DefaultFieldFilter, type FieldFilter, type FormControlElement } from './field-filter';
@@ -143,8 +144,14 @@ const isRadioChecked = (element: FormControlElement): boolean =>
     ? element.checked
     : element.getAttribute('aria-checked') === 'true' || element.getAttribute('data-state') === 'checked';
 
-const scopePenalty = (scope: HTMLElement): number =>
-  /search|filter|query|pagination/i.test(`${scope.id} ${scope.className}`) ? 100 : 0;
+const scopePenalty = (scope: HTMLElement): number => {
+  if (/search|filter|query|pagination/i.test(`${scope.id} ${scope.className}`)) return 100;
+  if (scope.matches('form') && scope.querySelector('input[type="search"]') &&
+    !scope.querySelector('input:not([type="search"]):not([type="hidden"]):not([type="submit"]), textarea, select, [role="combobox"]')) {
+    return 100;
+  }
+  return 0;
+};
 
 export interface RankedScope {
   scope: HTMLElement;
@@ -167,6 +174,17 @@ export const rankScopes = (candidates: HTMLElement[], filter: FieldFilter): Rank
     })
     .sort((left, right) => right.score - left.score);
 
+/** 无 form 容器时，多个同级字段项属于同一组，避免只复制第一个字段。 */
+const siblingFieldGroup = (scope: HTMLElement, filter: FieldFilter): HTMLElement | null => {
+  const parent = scope.parentElement;
+  if (!parent || parent === document.body || !scope.matches(FIELD_CONTAINER_SELECTOR)) return null;
+  const siblings = [...parent.children].filter((child): child is HTMLElement =>
+    child instanceof HTMLElement && child.matches(FIELD_CONTAINER_SELECTOR) && isRendered(child) &&
+    collectFormControls(child).some((element) => filter.shouldInclude(element, { scope: parent })),
+  );
+  return siblings.length > 1 && siblings.includes(scope) ? parent : null;
+};
+
 const chooseScope = (filter: FieldFilter): HTMLElement => {
   const candidates = [...new Set(document.querySelectorAll<HTMLElement>(FORM_SCOPE_SELECTOR))].filter(isRendered);
   // 弹窗是操作边界，不能用字段数量与背景页面竞争；无可复制字段时也不能退回背景。
@@ -186,7 +204,9 @@ const chooseScope = (filter: FieldFilter): HTMLElement => {
   const rankedForms = rankScopes(forms, filter);
   if (rankedForms[0]?.score > 0) return rankedForms[0].scope;
   const ranked = rankScopes(candidates, filter);
-  return ranked[0]?.score > 0 ? ranked[0].scope : document.body;
+  const focused = ranked.find((entry) => active && entry.scope.contains(active));
+  const selected = focused?.score ? focused : ranked[0];
+  return selected?.score > 0 ? siblingFieldGroup(selected.scope, filter) ?? selected.scope : document.body;
 };
 
 /** 表单可能所在的容器：命中后容器内的标题就是「这个表单」的名字（如 .ant-modal-title）。 */

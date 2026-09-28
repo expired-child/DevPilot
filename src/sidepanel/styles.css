@@ -152,7 +152,15 @@ h1, h2, p { margin: 0; }
   body { background: #17181b; }
   .current-card, .empty-card, .detail-card, .preview-summary, .result-card, .input-section, .history-item, .field-card, .diff-row { background: #222428; }
   .secondary-button, .small-button, .icon-button, .search-box, .stats div { color: #e6e6e2; background: #2b2d32; }
+  .secondary-button.full { color: #e6e6e2; background: #2b2d32; }
+  .history-item:hover, .history-item:focus-within { background: #2b2d32; }
+  .search-box input { color: #e6e6e2; }
+  .search-box input::placeholder { color: #b3b6bf; }
+  .brand-header p, .field-label, .field-label small, .value-preview, .result-card > p, .result-card > div { color: #b3b6bf; }
+  .result-card > div strong { color: #e6e6e2; }
   .include-toggle { color: #b3b6bf; }
+  .unique-toggle { color: #e6c98e; }
+  .diff-row small { color: #f08d96; }
   .text-button, .meta, .host, .eyebrow, .field-card small, .safety-note, .save-state { color: #b3b6bf; }
   .text-button.danger { color: #f08d96; }
   .blocking-note { color: #e6ba76; }
