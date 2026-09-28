@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { ChromeClipboardRepository, STORAGE_KEY } from '../modules/form-clipboard/clipboard-repository';
 import { ClipboardService } from '../modules/form-clipboard/clipboard-service';
@@ -14,11 +14,13 @@ import type {
 } from '../modules/form-clipboard/clipboard-types';
 import { createFingerprint } from '../modules/form-clipboard/fingerprint';
 import { getActiveTab, scanActiveTab, scanTab, sendToTab } from '../shared/messaging/tab-messaging';
+import { BOOKMARK_SEARCH_TRIGGER, type BookmarkSearchTrigger } from '../shared/constants';
+import { BookmarkSearchPage } from './pages/BookmarkSearchPage';
 import { ClipboardDetailPage } from './pages/ClipboardDetailPage';
 import { ClipboardPage } from './pages/ClipboardPage';
 import { PastePreviewPage } from './pages/PastePreviewPage';
 
-type View = { page: 'list' } | { page: 'detail'; itemId: string } | {
+type View = { page: 'list' } | { page: 'bookmarks' } | { page: 'detail'; itemId: string } | {
   page: 'preview'; itemId: string; targetTabId: number; targetSnapshot: FormTargetSnapshot;
   targetFields: FormField[]; targetTitle?: string;
 };
@@ -51,6 +53,13 @@ export function App() {
   const [view, setView] = useState<View>({ page: 'list' });
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
   const [replacementPending, setReplacementPending] = useState(false);
+  const [bookmarkFocusToken, setBookmarkFocusToken] = useState(0);
+  const lastBookmarkRequest = useRef<string | null>(null);
+
+  const openBookmarks = useCallback((): void => {
+    setView({ page: 'bookmarks' });
+    setBookmarkFocusToken((token) => token + 1);
+  }, []);
 
   const reload = useCallback(async (): Promise<FormClipboardState> => {
     const next = await service.getState();
@@ -81,6 +90,31 @@ export function App() {
     return () => chrome.storage.onChanged.removeListener(handleStorage);
   }, [reload]);
 
+  // 冷启动读会话标记，已打开的侧栏监听变化；只处理本窗口的快捷键。
+  useEffect(() => {
+    let disposed = false;
+    const consumeTrigger = async (trigger: BookmarkSearchTrigger | undefined): Promise<void> => {
+      if (!trigger || typeof trigger.windowId !== 'number' || typeof trigger.requestId !== 'string') return;
+      const currentWindow = await chrome.windows.getCurrent();
+      if (disposed || currentWindow.id !== trigger.windowId || lastBookmarkRequest.current === trigger.requestId) return;
+      lastBookmarkRequest.current = trigger.requestId;
+      openBookmarks();
+      const stored = (await chrome.storage.session.get(BOOKMARK_SEARCH_TRIGGER))[BOOKMARK_SEARCH_TRIGGER] as BookmarkSearchTrigger | undefined;
+      if (stored?.requestId === trigger.requestId) await chrome.storage.session.remove(BOOKMARK_SEARCH_TRIGGER);
+    };
+    void chrome.storage.session.get(BOOKMARK_SEARCH_TRIGGER).then((stored) => {
+      void consumeTrigger(stored[BOOKMARK_SEARCH_TRIGGER] as BookmarkSearchTrigger | undefined);
+    });
+    const handleSession = (changes: Record<string, chrome.storage.StorageChange>, area: string): void => {
+      if (area === 'session') void consumeTrigger(changes[BOOKMARK_SEARCH_TRIGGER]?.newValue as BookmarkSearchTrigger | undefined);
+    };
+    chrome.storage.onChanged.addListener(handleSession);
+    return () => {
+      disposed = true;
+      chrome.storage.onChanged.removeListener(handleSession);
+    };
+  }, [openBookmarks]);
+
   useEffect(() => {
     if (!notice) return;
     const timer = window.setTimeout(() => setNotice(null), 4200);
@@ -88,11 +122,11 @@ export function App() {
   }, [notice]);
 
   const item = useMemo(() => {
-    if (!state || view.page === 'list') return null;
+    if (!state || view.page === 'list' || view.page === 'bookmarks') return null;
     return state.history.find((entry) => entry.id === view.itemId) ?? null;
   }, [state, view]);
 
-  if (!state) {
+  if (!state && view.page !== 'bookmarks') {
     return <div className="loading">正在打开 DevPilot…</div>;
   }
 
@@ -144,7 +178,7 @@ export function App() {
   return (
     <main className="app-shell">
       {notice && <div className={`notice ${notice.tone}`} role={notice.tone === 'error' ? 'alert' : 'status'}>{notice.text}</div>}
-      {view.page === 'list' && (
+      {view.page === 'list' && state && (
         <ClipboardPage
           state={state}
           replacementPending={replacementPending}
@@ -157,11 +191,15 @@ export function App() {
           onCopy={() => void copyCurrent()}
           onPaste={(entry) => void startPaste(entry).catch(showError)}
           onDetail={(entry) => setView({ page: 'detail', itemId: entry.id })}
+          onBookmarks={openBookmarks}
           onClear={async () => {
             await service.clear();
             await reload();
           }}
         />
+      )}
+      {view.page === 'bookmarks' && (
+        <BookmarkSearchPage focusToken={bookmarkFocusToken} onBack={() => setView({ page: 'list' })} />
       )}
       {view.page === 'detail' && item && (
         <ClipboardDetailPage
@@ -181,7 +219,7 @@ export function App() {
           }}
         />
       )}
-      {view.page === 'preview' && item && (
+      {view.page === 'preview' && item && state && (
         <PastePreviewPage
           item={item}
           settings={state.settings}

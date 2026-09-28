@@ -4,6 +4,7 @@ import { buildFillPlan } from '../modules/form-clipboard/fill-plan-service';
 import { createFingerprint } from '../modules/form-clipboard/fingerprint';
 import type { FillReport, FormScanResult } from '../modules/form-clipboard/clipboard-types';
 import { getActiveTab, sendToTab } from '../shared/messaging/tab-messaging';
+import { BOOKMARK_SEARCH_TRIGGER, type BookmarkSearchTrigger } from '../shared/constants';
 import { registerCommands, type CommandHandlers } from './commands';
 import { registerContextMenus } from './context-menu';
 
@@ -123,7 +124,25 @@ const paste = async (tab?: chrome.tabs.Tab): Promise<void> => {
   }
 };
 
-const handlers: CommandHandlers = { copy, paste };
+const openBookmarks = async (tab?: chrome.tabs.Tab): Promise<void> => {
+  // manifest 声明的是全局侧栏。按窗口打开，避免在按标签配置尚未生效时
+  // 调用 open({ tabId }) 出现「No active side panel for tabId」。
+  const current = tab?.windowId !== undefined ? tab : await getActiveTab();
+  if (current.windowId === undefined) return;
+  const trigger: BookmarkSearchTrigger = { windowId: current.windowId, requestId: crypto.randomUUID() };
+  // open 必须在快捷键用户手势内发起；写入标记不能先 await。
+  const stored = chrome.storage.session.set({ [BOOKMARK_SEARCH_TRIGGER]: trigger });
+  const opened = chrome.sidePanel.open({ windowId: current.windowId });
+  try {
+    await Promise.all([stored, opened]);
+  } catch (error) {
+    console.error('[DevPilot] openBookmarks:sidePanel-failed', error);
+    const value = (await chrome.storage.session.get(BOOKMARK_SEARCH_TRIGGER))[BOOKMARK_SEARCH_TRIGGER] as BookmarkSearchTrigger | undefined;
+    if (value?.requestId === trigger.requestId) await chrome.storage.session.remove(BOOKMARK_SEARCH_TRIGGER);
+  }
+};
+
+const handlers: CommandHandlers = { copy, paste, openBookmarks };
 
 registerCommands(handlers);
 registerContextMenus(handlers);

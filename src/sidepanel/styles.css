@@ -36,6 +36,7 @@ h1, h2, p { margin: 0; }
 .primary-button { width: 100%; padding: 11px 14px; color: #fff; background: #1f232c; font-weight: 700; box-shadow: 0 5px 14px rgba(31,35,44,.14); }
 .secondary-button { padding: 10px 13px; color: #262932; background: #eaeaE6; font-weight: 650; }
 .secondary-button.full { width: 100%; margin-top: 10px; background: #e9e9e5; }
+.bookmark-entry { margin-bottom: 22px; }
 .small-button { flex: none; padding: 9px 12px; color: #383b43; background: #eeeeeA; font-size: 12px; font-weight: 650; }
 .text-button { padding: 4px; color: #5d6270; background: transparent; font-size: 12px; }
 .text-button.danger { color: #ba4650; }
@@ -50,7 +51,7 @@ h1, h2, p { margin: 0; }
 .search-box input { width: 100%; border: 0; outline: 0; background: transparent; color: #24272e; font-size: 13px; }
 .history-list { display: grid; gap: 7px; margin: 11px 0; }
 .history-item { display: flex; align-items: center; gap: 10px; padding: 12px; border-radius: 13px; background: rgba(255,255,255,.72); transition: background .15s ease, transform .15s ease; }
-.history-item:hover { background: #fff; transform: translateY(-1px); }
+.history-item:hover, .history-item.active { background: #fff; transform: translateY(-1px); }
 .history-main { min-width: 0; flex: 1; }
 .history-open { padding: 0; border: 0; color: inherit; background: transparent; text-align: left; cursor: pointer; }
 .history-name { display: flex; align-items: center; gap: 6px; min-width: 0; font-size: 13px; }
@@ -153,7 +154,7 @@ h1, h2, p { margin: 0; }
   .current-card, .empty-card, .detail-card, .preview-summary, .result-card, .input-section, .history-item, .field-card, .diff-row { background: #222428; }
   .secondary-button, .small-button, .icon-button, .search-box, .stats div { color: #e6e6e2; background: #2b2d32; }
   .secondary-button.full { color: #e6e6e2; background: #2b2d32; }
-  .history-item:hover, .history-item:focus-within { background: #2b2d32; }
+  .history-item:hover, .history-item:focus-within, .history-item.active { background: #2b2d32; }
   .search-box input { color: #e6e6e2; }
   .search-box input::placeholder { color: #b3b6bf; }
   .brand-header p, .field-label, .field-label small, .value-preview, .result-card > p, .result-card > div { color: #b3b6bf; }

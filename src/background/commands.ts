@@ -3,6 +3,7 @@ import { COMMANDS, SHORTCUT_ACTIONS, SHORTCUT_BINDINGS_REQUEST } from '../shared
 export interface CommandHandlers {
   copy(tab?: chrome.tabs.Tab): Promise<void>;
   paste(tab?: chrome.tabs.Tab): Promise<void>;
+  openBookmarks(tab?: chrome.tabs.Tab): Promise<void>;
 }
 
 /**
@@ -32,6 +33,11 @@ export const registerCommands = (handlers: CommandHandlers): void => {
     if (command === COMMANDS.paste) {
       if (claimAction(SHORTCUT_ACTIONS.paste)) {
         void handlers.paste(tab);
+      }
+    }
+    if (command === COMMANDS.openBookmarks) {
+      if (claimAction(SHORTCUT_ACTIONS.openBookmarks)) {
+        void handlers.openBookmarks(tab);
       }
     }
   });

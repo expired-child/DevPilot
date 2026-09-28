@@ -19,7 +19,7 @@ describe('page shortcut fallback', () => {
       },
       runtime: { onMessage: { addListener: (listener: typeof onMessage) => { onMessage = listener; } } },
     });
-    registerCommands({ copy: async () => {}, paste: async () => {} });
+    registerCommands({ copy: async () => {}, paste: async () => {}, openBookmarks: async () => {} });
     let response: unknown;
     onMessage!({ type: SHORTCUT_BINDINGS_REQUEST }, {} as chrome.runtime.MessageSender, (value) => { response = value; });
     await vi.waitFor(() => expect(response).toEqual({ ok: true, fallbackCopy: false, fallbackPaste: true }));

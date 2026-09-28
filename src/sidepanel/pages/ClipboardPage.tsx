@@ -9,6 +9,7 @@ interface Props {
   onCopy(): void;
   onPaste(item: FormClipboardItem): void;
   onDetail(item: FormClipboardItem): void;
+  onBookmarks(): void;
   onClear(): Promise<void>;
   replacementPending: boolean;
   onReplacementToggle(enabled: boolean): Promise<void>;
@@ -51,7 +52,7 @@ function HistoryItem({ item, current, onPaste, onDetail }: { item: FormClipboard
   );
 }
 
-export function ClipboardPage({ state, onCopy, onPaste, onDetail, onClear, replacementPending, onReplacementToggle, onSaveReplacementRules }: Props) {
+export function ClipboardPage({ state, onCopy, onPaste, onDetail, onBookmarks, onClear, replacementPending, onReplacementToggle, onSaveReplacementRules }: Props) {
   const [query, setQuery] = useState('');
   const current = state.history.find((item) => item.id === state.currentId);
   const results = useMemo(() => searchHistory(state.history, query), [state.history, query]);
@@ -62,6 +63,8 @@ export function ClipboardPage({ state, onCopy, onPaste, onDetail, onClear, repla
         <div className="brand-mark">D</div>
         <div><h1>DevPilot</h1><p>表单剪贴板</p></div>
       </header>
+
+      <button className="secondary-button full bookmark-entry" onClick={onBookmarks}>⌕ 书签搜索</button>
 
       <GlobalReplacementSettings settings={state.settings} togglePending={replacementPending} onToggle={onReplacementToggle} onSave={onSaveReplacementRules} />
 

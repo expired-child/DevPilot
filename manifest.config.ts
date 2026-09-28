@@ -4,9 +4,9 @@ export default defineManifest({
   manifest_version: 3,
   name: 'DevPilot',
   description: '面向开发者的浏览器效率工具，首个模块为表单剪贴板。',
-  version: '0.1.7',
-  minimum_chrome_version: '114',
-  permissions: ['activeTab', 'contextMenus', 'sidePanel', 'storage'],
+  version: '0.1.8',
+  minimum_chrome_version: '141',
+  permissions: ['activeTab', 'bookmarks', 'contextMenus', 'sidePanel', 'storage'],
   action: {
     default_title: '打开 DevPilot 侧栏',
   },
@@ -36,6 +36,12 @@ export default defineManifest({
         default: 'Alt+Shift+V',
       },
       description: '直接填充最近表单到当前页（跳过预览）',
+    },
+    'open-bookmark-search': {
+      suggested_key: {
+        default: 'Alt+Shift+F',
+      },
+      description: '打开书签搜索',
     },
   },
 });
