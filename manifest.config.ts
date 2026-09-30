@@ -16,6 +16,7 @@ export default defineManifest({
   version: '0.1.8',
   minimum_chrome_version: '141',
   permissions: ['activeTab', 'bookmarks', 'contextMenus', 'sidePanel', 'storage', 'webNavigation'],
+  host_permissions: ['https://api.deepseek.com/*'],
   action: {
     default_title: '打开 DevPilot 侧栏',
   },

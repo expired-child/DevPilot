@@ -1,5 +1,11 @@
 import { ClipboardService } from '../modules/form-clipboard/clipboard-service';
 import { ChromeClipboardRepository } from '../modules/form-clipboard/clipboard-repository';
+import { ChromeOrganizerRepository } from '../modules/bookmark-organizer/bookmark-organizer-repository';
+import {
+  BookmarkOrganizeCoordinator,
+  registerBookmarkAutoOrganize,
+  registerBookmarkCommands,
+} from './bookmark-coordinator';
 import { ClipboardWriteCoordinator, registerClipboardCommands } from './clipboard-coordinator';
 import { buildFillPlan } from '../modules/form-clipboard/fill-plan-service';
 import { topSkipReason } from '../modules/form-clipboard/fill-feedback';
@@ -13,6 +19,16 @@ import { registerContextMenus } from './context-menu';
 const repository = new ChromeClipboardRepository();
 const clipboard = new ClipboardWriteCoordinator(new ClipboardService(repository));
 registerClipboardCommands(clipboard);
+
+// 书签整理走独立的命令通道、队列与操作日志，不复用表单剪贴板的任何数据键。
+const organizer = new BookmarkOrganizeCoordinator(new ChromeOrganizerRepository());
+registerBookmarkCommands(organizer);
+// 测试环境或受限上下文可能没有 bookmarks 事件；注册失败不影响其余后台能力。
+try {
+  registerBookmarkAutoOrganize(organizer);
+} catch (error) {
+  console.error('[DevPilot] bookmark-auto-organize:setup-failed', error);
+}
 
 const targetTab = async (tab?: chrome.tabs.Tab): Promise<chrome.tabs.Tab> => tab?.id ? tab : getActiveTab();
 

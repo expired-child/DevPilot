@@ -26,7 +26,7 @@ import {
 import { sendClipboardCommand, type ClipboardCommand, type ClipboardCommandResult } from '../shared/messaging/clipboard-commands';
 import { BOOKMARK_SEARCH_TRIGGER, type BookmarkSearchTrigger } from '../shared/constants';
 import { currentWindowId, loadGlobalDraft, sameRules, saveGlobalDraft } from './global-draft-store';
-import { BookmarkSearchPage } from './pages/BookmarkSearchPage';
+import { BookmarkSearchPage, defaultBookmarkUiState, type BookmarkUiState } from './pages/BookmarkSearchPage';
 import { ClipboardDetailPage } from './pages/ClipboardDetailPage';
 import { ClipboardPage } from './pages/ClipboardPage';
 import { FormCandidatesPage } from './pages/FormCandidatesPage';
@@ -82,6 +82,8 @@ export function App() {
   const [replacementDraftConflict, setReplacementDraftConflict] = useState(false);
   const [candidates, setCandidates] = useState<CandidateOption[]>([]);
   const [bookmarkFocusToken, setBookmarkFocusToken] = useState(0);
+  /** 书签页的查询/模式/筛选提升到 App：从列表页返回时保留状态。 */
+  const [bookmarkUi, setBookmarkUi] = useState<BookmarkUiState>(defaultBookmarkUiState);
   const lastBookmarkRequest = useRef<string | null>(null);
   const draftBaseRef = useRef<ReplacementRule[] | null>(null);
   const replacementDraftRef = useRef<ReplacementRule[] | null>(null);
@@ -376,7 +378,12 @@ export function App() {
         />
       )}
       {view.page === 'bookmarks' && (
-        <BookmarkSearchPage focusToken={bookmarkFocusToken} onBack={() => setView({ page: 'list' })} />
+        <BookmarkSearchPage
+          focusToken={bookmarkFocusToken}
+          onBack={() => setView({ page: 'list' })}
+          ui={bookmarkUi}
+          onUiChange={setBookmarkUi}
+        />
       )}
       {view.page === 'candidates' && (
         <FormCandidatesPage
