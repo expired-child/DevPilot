@@ -41,8 +41,12 @@ export class BookmarkOrganizeCoordinator {
   private importing = false;
   private readonly placements = new Map<string, { cancelled: boolean }>();
   private readonly ownedCreates = new Set<string>();
+  private unfiledRun: Promise<BookmarkCommandResult> | null = null;
+  private autoOrganizeReady = false;
 
   constructor(private readonly storage: OrganizerRepository) {}
+
+  setAutoOrganizeReady(ready: boolean): void { this.autoOrganizeReady = ready; }
 
   private enqueue<T>(task: () => Promise<T>): Promise<T> {
     const run = this.tail.then(task, task);
@@ -62,6 +66,12 @@ export class BookmarkOrganizeCoordinator {
   }
 
   handle(command: BookmarkCommand): Promise<BookmarkCommandResult> {
+    if (command.type === BOOKMARK_COMMANDS.organizeUnfiled) {
+      if (!this.unfiledRun) {
+        this.unfiledRun = this.organizeUnfiled().finally(() => { this.unfiledRun = null; });
+      }
+      return this.unfiledRun;
+    }
     // AI 只读生成不占用写队列；完成后校验修订号，避免覆盖另一窗口的新规则。
     if (command.type === BOOKMARK_COMMANDS.aiPreview) return this.aiPreview(command.scopeFolderId, command.expectedRevision);
     if (command.type === BOOKMARK_COMMANDS.recommendPage) return this.recommendPage(command.title, command.url);
@@ -69,7 +79,7 @@ export class BookmarkOrganizeCoordinator {
       try {
         switch (command.type) {
           case BOOKMARK_COMMANDS.aiStatus:
-            return { ok: true, aiConfigured: Boolean(await loadDeepSeekKey()) };
+            return { ok: true, aiConfigured: Boolean(await loadDeepSeekKey()), autoOrganizeReady: this.autoOrganizeReady };
           case BOOKMARK_COMMANDS.saveAiKey:
             await saveDeepSeekKey(command.apiKey);
             if (!command.apiKey.trim()) {
@@ -675,6 +685,7 @@ export class BookmarkOrganizeCoordinator {
     const state = await this.storage.load();
     await this.storage.save(recordActivity(state, {
       kind: 'manual-save',
+      bookmarkId: created.id,
       at: Date.now(),
       title,
       detail: `保存到 ${targetPath}`,
@@ -682,8 +693,35 @@ export class BookmarkOrganizeCoordinator {
   }
 
   /** 新收藏：规则优先，开启 AI 后补充主题推荐；网络不占用写队列，应用前复核状态。 */
+  async recordPlacementProgress(bookmarkId: string, title: string, detail: string, failed = false): Promise<void> {
+    await this.enqueue(async () => {
+      const state = await this.storage.load();
+      if (!state.settings.aiAutoPlaceEnabled && !state.settings.autoArchiveEnabled) return;
+      await this.storage.save(recordActivity(state, { kind: failed ? 'auto-place-skip' : 'auto-place-progress',
+        bookmarkId, title, detail, at: Date.now() }));
+    });
+  }
+
+  private async organizeUnfiled(): Promise<BookmarkCommandResult> {
+    try {
+      const state = await this.storage.load();
+      if (!state.settings.aiAutoPlaceEnabled && !state.settings.autoArchiveEnabled) {
+        throw new Error('请先开启新书签 AI 智能放置或用户规则自动归档。');
+      }
+      if (unfinishedBatch(state)) throw new Error('请先对账或撤销未完成的整理批次。');
+      const snapshot = createBookmarkSnapshot(await chrome.bookmarks.getTree());
+      const candidates = Object.values(snapshot.nodes).filter((node) => isBookmarkNode(node) && node.modifiable &&
+        node.barRootId !== null && node.parentId === node.barRootId && /^https?:/.test(node.url!));
+      // 顺序推荐：后一个条目看到前一个创建的目录，确保同类收藏优先放到一起。
+      for (const node of candidates) await this.handleBookmarkCreated(node.id);
+      return { ok: true, processedCount: candidates.length };
+    } catch (cause) { return { ok: false, error: cause instanceof Error ? cause.message : '补整理失败，请重试。' }; }
+  }
+
   async handleBookmarkCreated(bookmarkId: string): Promise<void> {
     if (this.ownedCreates.delete(bookmarkId)) return;
+    // 事件监听与漏报补检同时命中时复用正在进行的任务。
+    if (this.placements.get(bookmarkId)?.cancelled === false) return;
     const job = { cancelled: false };
     this.cancelBookmarkPlacement(bookmarkId);
     this.placements.set(bookmarkId, job);
@@ -700,10 +738,12 @@ export class BookmarkOrganizeCoordinator {
   private async autoMoveCreated(bookmarkId: string, job: { cancelled: boolean }): Promise<void> {
     const state = await this.storage.load();
     if ((!state.settings.autoArchiveEnabled && !state.settings.aiAutoPlaceEnabled) || this.importing || job.cancelled) return;
-    if (unfinishedBatch(state)) return;
+    if (state.activity.some((entry) => entry.kind === 'manual-save' && entry.bookmarkId === bookmarkId)) return;
+    if (unfinishedBatch(state)) throw new Error('已有未完成的整理批次，请在整理页对账或撤销后继续自动放置。');
     const snapshot = createBookmarkSnapshot(await chrome.bookmarks.getTree());
     const node = getNode(snapshot, bookmarkId);
     if (!node || !isBookmarkNode(node) || !node.modifiable || node.barRootId === null) return;
+    await this.recordPlacementProgress(bookmarkId, node.title || node.url!, '正在分类并选择目录…');
 
     const folderNames: string[] = [];
     let parent = node.parentId ? getNode(snapshot, node.parentId) : null;
@@ -717,14 +757,23 @@ export class BookmarkOrganizeCoordinator {
       state.rules,
       override?.urlFingerprint === urlFingerprint(node.url!) ? override : undefined,
     );
-    if (classification.noAutoMove || (override?.urlFingerprint === urlFingerprint(node.url!))) return;
+    if (classification.noAutoMove || (override?.urlFingerprint === urlFingerprint(node.url!))) {
+      await this.recordPlacementProgress(bookmarkId, node.title || node.url!, '已手动分类或固定，保留原位置。', true);
+      return;
+    }
     let recommendation: BookmarkRecommendation;
     if (classification.matchedUserRule) {
       recommendation = { targetPath: suggestedTargetPath(classification), certain: classification.verdict === 'certain', reason: classification.reason, source: 'rule' };
     } else if (state.settings.aiAutoPlaceEnabled) {
-      if (!/^https?:/.test(node.url!)) return;
+      if (!/^https?:/.test(node.url!)) {
+        await this.recordPlacementProgress(bookmarkId, node.title || node.url!, '仅支持 http(s) 网页，保留原位置。', true);
+        return;
+      }
       recommendation = await this.recommendation(node.title || node.url!, node.url!, node.relativeFolderPath ?? '', state, snapshot, node.id);
-    } else return;
+    } else {
+      await this.recordPlacementProgress(bookmarkId, node.title || node.url!, '未命中已保存的规则，保留原位置。', true);
+      return;
+    }
     const target = recommendation.targetPath;
     if (!recommendation.certain || !target) {
       if (state.settings.aiAutoPlaceEnabled && !job.cancelled) await this.enqueue(async () => {
@@ -734,7 +783,10 @@ export class BookmarkOrganizeCoordinator {
       });
       return;
     }
-    if (!target || target === node.relativeFolderPath) return;
+    if (!target || target === node.relativeFolderPath) {
+      await this.recordPlacementProgress(bookmarkId, node.title || node.url!, '已在推荐目录中，无需移动。');
+      return;
+    }
     await this.enqueue(async () => {
       const current = await this.storage.load();
       if (job.cancelled || this.importing || unfinishedBatch(current) || current.classificationRevision !== state.classificationRevision ||
@@ -779,60 +831,4 @@ export const registerBookmarkCommands = (coordinator: BookmarkOrganizeCoordinato
   });
 };
 
-/** 原生收藏框会先创建书签，再更新名称/位置；等内容稳定后处理，手动移动取消。 */
-export const NEW_BOOKMARK_SETTLE_MS = 1500;
-export const registerBookmarkAutoOrganize = (coordinator: BookmarkOrganizeCoordinator): (() => void) => {
-  const timers = new Map<string, ReturnType<typeof setTimeout>>();
-  const pending = new Map<string, object>();
-  let importing = false;
-  const cancel = (id: string): void => {
-    clearTimeout(timers.get(id));
-    timers.delete(id);
-    pending.delete(id);
-    coordinator.cancelBookmarkPlacement(id);
-  };
-  const schedule = (id: string): void => {
-    clearTimeout(timers.get(id));
-    const ticket = {};
-    pending.set(id, ticket);
-    timers.set(id, setTimeout(() => {
-      timers.delete(id);
-      void coordinator.handleBookmarkCreated(id).finally(() => {
-        if (pending.get(id) === ticket) pending.delete(id);
-      });
-    }, NEW_BOOKMARK_SETTLE_MS));
-  };
-  const created = (id: string, node?: chrome.bookmarks.BookmarkTreeNode): void => {
-    if (!importing && (!node || node.url)) schedule(id);
-  };
-  const changed = (id: string): void => {
-    if (!pending.has(id) || importing) return;
-    coordinator.cancelBookmarkPlacement(id);
-    schedule(id);
-  };
-  const began = (): void => {
-    importing = true;
-    for (const id of pending.keys()) cancel(id);
-    coordinator.setImporting(true);
-  };
-  const ended = (): void => { importing = false; coordinator.setImporting(false); };
-  const reordered = (_id: string, info: { childIds: string[] }): void => { for (const id of info.childIds) cancel(id); };
-  const api = chrome.bookmarks;
-  api?.onCreated?.addListener(created);
-  api?.onChanged?.addListener(changed);
-  api?.onMoved?.addListener(cancel);
-  api?.onRemoved?.addListener(cancel);
-  api?.onChildrenReordered?.addListener(reordered);
-  api?.onImportBegan?.addListener(began);
-  api?.onImportEnded?.addListener(ended);
-  return () => {
-    for (const id of pending.keys()) cancel(id);
-    api?.onCreated?.removeListener?.(created);
-    api?.onChanged?.removeListener?.(changed);
-    api?.onMoved?.removeListener?.(cancel);
-    api?.onRemoved?.removeListener?.(cancel);
-    api?.onChildrenReordered?.removeListener?.(reordered);
-    api?.onImportBegan?.removeListener?.(began);
-    api?.onImportEnded?.removeListener?.(ended);
-  };
-};
+export { NEW_BOOKMARK_SETTLE_MS, registerBookmarkAutoOrganize } from './bookmark-auto-organize';

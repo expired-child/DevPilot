@@ -22,6 +22,7 @@ export const BOOKMARK_COMMANDS = {
   aiStatus: 'GET_BOOKMARK_AI_STATUS',
   aiPreview: 'GENERATE_BOOKMARK_AI_PREVIEW',
   recommendPage: 'RECOMMEND_PAGE_BOOKMARK',
+  organizeUnfiled: 'ORGANIZE_UNFILED_BOOKMARKS',
 } as const;
 
 /** 预览中选定的一条移动：后台应用时会重新核对全部前置条件。 */
@@ -50,6 +51,7 @@ export interface OrganizeApplyPlan {
 }
 
 export type BookmarkCommand =
+  | { type: typeof BOOKMARK_COMMANDS.organizeUnfiled }
   | { type: typeof BOOKMARK_COMMANDS.saveAiKey; apiKey: string }
   | { type: typeof BOOKMARK_COMMANDS.aiStatus }
   | { type: typeof BOOKMARK_COMMANDS.aiPreview; scopeFolderId: string | null; expectedRevision: number }
@@ -64,11 +66,16 @@ export type BookmarkCommand =
   | { type: typeof BOOKMARK_COMMANDS.savePageBookmark; title: string; url: string; targetPath: string };
 
 export type BookmarkCommandResult =
-  | { ok: true; batch?: OrganizeBatch; aiConfigured?: boolean; preview?: OrganizePreview; recommendation?: BookmarkRecommendation }
+  | { ok: true; batch?: OrganizeBatch; aiConfigured?: boolean; autoOrganizeReady?: boolean; preview?: OrganizePreview; recommendation?: BookmarkRecommendation; processedCount?: number }
   | { ok: false; error: string };
 
-export const sendBookmarkCommand = async (command: BookmarkCommand): Promise<BookmarkCommandResult> =>
-  chrome.runtime.sendMessage(command) as Promise<BookmarkCommandResult>;
+export const sendBookmarkCommand = async (command: BookmarkCommand): Promise<BookmarkCommandResult> => {
+  const response: BookmarkCommandResult | undefined = await chrome.runtime.sendMessage(command);
+  if (!response || typeof response.ok !== 'boolean') {
+    throw new Error('书签整理后台未响应，请在扩展管理页重新加载 DevPilot 后重试。');
+  }
+  return response;
+};
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -128,6 +135,7 @@ export const isBookmarkCommand = (value: unknown): value is BookmarkCommand => {
     case BOOKMARK_COMMANDS.saveAiKey:
       return typeof value.apiKey === 'string' && value.apiKey.length <= 256;
     case BOOKMARK_COMMANDS.aiStatus:
+    case BOOKMARK_COMMANDS.organizeUnfiled:
       return true;
     case BOOKMARK_COMMANDS.aiPreview:
       return validRevision(value.expectedRevision) && (value.scopeFolderId === null || nonEmptyString(value.scopeFolderId));

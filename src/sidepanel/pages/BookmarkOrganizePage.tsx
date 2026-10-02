@@ -204,7 +204,13 @@ export function BookmarkOrganizePage({ active }: Props) {
     queueMicrotask(() => { if (!disposed) void rebuild(scopeFolderId); });
     const refreshAiStatus = (): void => {
       void sendBookmarkCommand({ type: 'GET_BOOKMARK_AI_STATUS' }).then((response) => {
-        if (!disposed && response.ok) setAiConfigured(response.aiConfigured === true);
+        if (!disposed && response.ok) {
+          setAiConfigured(response.aiConfigured === true);
+          if (response.autoOrganizeReady === false ||
+            (typeof chrome.runtime.getManifest === 'function' && response.autoOrganizeReady === undefined)) {
+            setAiStatus('自动整理后台尚未就绪，请在扩展管理页重新加载 DevPilot。');
+          }
+        }
       }).catch(() => { if (!disposed) setAiStatus('读取 AI 配置失败，请重新打开整理页。'); });
     };
     refreshAiStatus();
@@ -538,6 +544,22 @@ export function BookmarkOrganizePage({ active }: Props) {
           收藏新网页时使用 AI 智能放置
         </label>
         <p className="copy-hint">开启后，通过浏览器星标或 Ctrl+D 新增到书签栏的书签会在名称稳定后智能放置；手动移动、删除和批量导入会停止处理。只有有把握的建议会自动应用，可在最近批次中撤销。</p>
+        <p className="copy-hint">通常在收藏后 1.5 秒开始；后台补检约每 30 秒执行一次。AI 会按主题创建目录，并优先将同类收藏放入已有目录。</p>
+        <button type="button" className="secondary-button full" disabled={busy || Boolean(unfinished) ||
+          (!settings.aiAutoPlaceEnabled && !settings.autoArchiveEnabled)}
+          onClick={() => void runCommand({ type: 'ORGANIZE_UNFILED_BOOKMARKS' })}>
+          {busy ? '正在处理…' : '立即整理书签栏未归类收藏'}
+        </button>
+        <p className="copy-hint">此按钮补处理书签栏顶层已有的网页收藏；已放入文件夹、手动固定或指定过目录的书签会保留。</p>
+        <div className="organize-activity" aria-label="自动整理状态" role="status" aria-live="polite">
+          <h3>自动整理状态</h3>
+          {organizerState?.activity.filter((entry) => entry.kind.startsWith('auto-')).slice(0, 4).map((entry, index) => (
+            <p key={`${entry.at}-${index}`} className="meta">{entry.title} · {entry.detail}</p>
+          ))}
+          {!organizerState?.activity.some((entry) => entry.kind.startsWith('auto-')) &&
+            <p className="meta">{settings.aiAutoPlaceEnabled || settings.autoArchiveEnabled
+              ? '正在监听新收藏，尚未收到待整理书签。' : '开启自动放置后显示收到收藏、分类及放置结果。'}</p>}
+        </div>
         <p className="copy-hint">AI 推荐、预览和自动放置会向 DeepSeek 发送书签标题、网址路径和目录；不发送网址查询参数与片段。Key 仅保存在本机。</p>
         {aiStatus && <p className="copy-hint" role="status">{aiStatus}</p>}
       </section>

@@ -69,10 +69,12 @@ export interface OrganizeBatch {
   plannedArchives: Array<{ folderId: string; title: string; path: string; originalParentId: string; originalIndex: number }>;
 }
 
-export type ActivityKind = 'auto-move' | 'auto-place-skip' | 'manual-save' | 'apply' | 'undo';
+export type ActivityKind = 'auto-place-progress' | 'auto-move' | 'auto-place-skip' | 'manual-save' | 'apply' | 'undo';
 
 export interface ActivityEntry {
   kind: ActivityKind;
+  /** 手动保存的节点身份：后台恢复时仍保留用户指定的目录。 */
+  bookmarkId?: string;
   at: number;
   title: string;
   detail: string;
