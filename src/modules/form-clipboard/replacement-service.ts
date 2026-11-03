@@ -1,5 +1,8 @@
 import type { ReplacementRule } from './clipboard-types';
 
+export const sameReplacementRules = (left: ReplacementRule[], right: ReplacementRule[]): boolean =>
+  JSON.stringify(left) === JSON.stringify(right);
+
 /** 每次返回独立规则，避免修改某份配置时污染默认值。 */
 export const defaultReplacementRules = (): ReplacementRule[] => [
   { mode: 'regex', search: '\\.demo\\.ehi\\.com\\.cn(?=[:/?#]|$)', replacement: '.1hai.cn' },

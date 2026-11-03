@@ -38,13 +38,17 @@ const contentFiles = manifest.content_scripts.flatMap((entry) => entry.js ?? [])
 if (contentFiles.includes(importedPath.replace(/^\.\//u, ''))) {
   throw new Error('Service Worker 与 Content Script 错误指向同一构建文件');
 }
+if (!manifest.permissions.includes('webNavigation') ||
+  !manifest.content_scripts.some((entry) => entry.all_frames && entry.match_about_blank && entry.match_origin_as_fallback)) {
+  throw new Error('表单 iframe 扫描所需的 frame 注入与路由配置缺失');
+}
 
 const event = { addListener() {} };
 globalThis.chrome = {
-  commands: { onCommand: event },
+  commands: { onCommand: event, getAll: async () => [] },
   contextMenus: { create() {}, onClicked: event, removeAll: async () => {} },
   runtime: { onInstalled: event, onMessage: event },
-  sidePanel: { open: async () => {} },
+  sidePanel: { open: async () => {}, setPanelBehavior: async () => {} },
   storage: {
     local: { get: async () => ({}), set: async () => {} },
     session: { set: async () => {} },

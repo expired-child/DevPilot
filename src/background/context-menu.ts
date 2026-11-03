@@ -14,7 +14,7 @@ export const registerContextMenus = (handlers: CommandHandlers): void => {
       chrome.contextMenus.create({
         id: CONTEXT_MENUS.paste,
         parentId: CONTEXT_MENUS.root,
-        title: '粘贴最近表单',
+        title: '直接填充最近表单（跳过预览）',
         contexts: ['page', 'editable'],
       });
     });

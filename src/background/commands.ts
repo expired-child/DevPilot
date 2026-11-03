@@ -1,8 +1,9 @@
-import { COMMANDS, SHORTCUT_ACTIONS } from '../shared/constants';
+import { COMMANDS, SHORTCUT_ACTIONS, SHORTCUT_BINDINGS_REQUEST } from '../shared/constants';
 
 export interface CommandHandlers {
   copy(tab?: chrome.tabs.Tab): Promise<void>;
   paste(tab?: chrome.tabs.Tab): Promise<void>;
+  openBookmarks(tab?: chrome.tabs.Tab): Promise<void>;
 }
 
 /**
@@ -34,10 +35,22 @@ export const registerCommands = (handlers: CommandHandlers): void => {
         void handlers.paste(tab);
       }
     }
+    if (command === COMMANDS.openBookmarks) {
+      if (claimAction(SHORTCUT_ACTIONS.openBookmarks)) {
+        void handlers.openBookmarks(tab);
+      }
+    }
   });
 
   chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
     const type = typeof message === 'object' && message !== null && 'type' in message ? message.type : null;
+    if (type === SHORTCUT_BINDINGS_REQUEST) {
+      void chrome.commands.getAll().then((commands) => {
+        const bound = (name: string): boolean => Boolean(commands.find((command) => command.name === name)?.shortcut);
+        sendResponse({ ok: true, fallbackCopy: !bound(COMMANDS.copy), fallbackPaste: !bound(COMMANDS.paste) });
+      }).catch(() => sendResponse({ ok: false }));
+      return true;
+    }
     if (type !== SHORTCUT_ACTIONS.copy && type !== SHORTCUT_ACTIONS.paste) {
       return false;
     }

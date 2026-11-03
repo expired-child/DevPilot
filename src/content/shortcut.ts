@@ -1,4 +1,4 @@
-import { SHORTCUT_ACTIONS, type ShortcutAction } from '../shared/constants';
+import { SHORTCUT_ACTIONS, SHORTCUT_BINDINGS_REQUEST, type ShortcutAction } from '../shared/constants';
 
 interface KeyboardShortcutLike {
   key: string;
@@ -20,27 +20,35 @@ export const resolvePageShortcut = (event: KeyboardShortcutLike): ShortcutAction
 };
 
 /**
- * 页面级 keydown 兜底：Chrome 命令未绑定或被占用时仍能触发复制/粘贴。
- * 注意 content script 里无法访问 chrome.commands（不可查询绑定状态），
- * 因此可能与命令通道同时触发，重复执行由 Service Worker 的 claimAction 去重窗口拦截。
+ * 仅在 Chrome 命令没有绑定快捷键时启用页面兜底。
+ * 用户重新绑定命令后，原来的 Alt+Shift+C/V 不再拦截网页按键。
  */
-export const registerPageShortcuts = (onError: (message: string) => void): void => {
-  window.addEventListener(
-    'keydown',
-    (event) => {
-      const action = resolvePageShortcut(event);
-      if (!action) return;
-      event.preventDefault();
-      event.stopPropagation();
-      void chrome.runtime
-        .sendMessage({ type: action })
-        .then((response: { ok?: boolean; error?: string } | undefined) => {
-          if (response?.ok === false) {
-            onError(response.error ?? '快捷键执行失败');
-          }
-        })
-        .catch(() => onError('快捷键执行失败，请重新加载扩展和当前页面'));
-    },
-    true,
-  );
+export const registerPageShortcuts = (onError: (message: string) => void): (() => void) => {
+  let fallbackCopy = false;
+  let fallbackPaste = false;
+  void chrome.runtime.sendMessage({ type: SHORTCUT_BINDINGS_REQUEST })
+    .then((response: { ok?: boolean; fallbackCopy?: boolean; fallbackPaste?: boolean } | undefined) => {
+      if (response?.ok) {
+        fallbackCopy = Boolean(response.fallbackCopy);
+        fallbackPaste = Boolean(response.fallbackPaste);
+      }
+    })
+    .catch(() => {});
+
+  const handleKeyDown = (event: KeyboardEvent): void => {
+    const action = resolvePageShortcut(event);
+    if (!action || (action === SHORTCUT_ACTIONS.copy ? !fallbackCopy : !fallbackPaste)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    void chrome.runtime
+      .sendMessage({ type: action })
+      .then((response: { ok?: boolean; error?: string } | undefined) => {
+        if (response?.ok === false) {
+          onError(response.error ?? '快捷键执行失败');
+        }
+      })
+      .catch(() => onError('快捷键执行失败，请重新加载扩展和当前页面'));
+  };
+  window.addEventListener('keydown', handleKeyDown, true);
+  return () => window.removeEventListener('keydown', handleKeyDown, true);
 };

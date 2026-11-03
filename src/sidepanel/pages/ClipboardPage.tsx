@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 import { searchHistory } from '../../modules/form-clipboard/clipboard-service';
 import type { FormClipboardItem, FormClipboardState, ReplacementRule } from '../../modules/form-clipboard/clipboard-types';
+import { ChevronRightIcon, CloseIcon, SearchIcon } from '../components/icons';
 import { GlobalReplacementSettings } from './GlobalReplacementSettings';
 
 interface Props {
@@ -9,9 +10,14 @@ interface Props {
   onCopy(): void;
   onPaste(item: FormClipboardItem): void;
   onDetail(item: FormClipboardItem): void;
+  onBookmarks(): void;
   onClear(): Promise<void>;
   replacementPending: boolean;
   onReplacementToggle(enabled: boolean): Promise<void>;
+  replacementDraft: ReplacementRule[] | null;
+  replacementDraftConflict: boolean;
+  onReplacementDraftChange(rules: ReplacementRule[] | null): void;
+  onReplacementDraftRebase(): void;
   onSaveReplacementRules(rules: ReplacementRule[]): Promise<void>;
 }
 
@@ -36,23 +42,24 @@ const metaText = (item: FormClipboardItem): string => {
 
 function HistoryItem({ item, current, onPaste, onDetail }: { item: FormClipboardItem; current: boolean; onPaste(): void; onDetail(): void }) {
   return (
-    <article className="history-item" onClick={onDetail}>
-      <div className="history-main">
+    <article className="history-item">
+      <button className="history-main history-open" onClick={onDetail} aria-label={`查看“${item.name}”详情`}>
         <div className="history-name">
-          {item.pinned && <span title="已固定">◆</span>}
-          {current && <span className="current-dot" title="当前剪贴板" />}
+          {item.pinned && <span title="已固定" aria-hidden="true">◆</span>}
+          {current && <span className="current-dot" title="当前剪贴板" aria-hidden="true" />}
           <strong>{item.name}</strong>
         </div>
         <div className="meta">{metaText(item)}</div>
         <div className="host" title={item.source.title || item.source.url}>{item.source.title || item.source.host}</div>
-      </div>
-      <button className="small-button" onClick={(event) => { event.stopPropagation(); onPaste(); }}>粘贴</button>
+      </button>
+      <button className="small-button" onClick={onPaste} aria-label={`预览并填充“${item.name}”`}>预览</button>
     </article>
   );
 }
 
-export function ClipboardPage({ state, onCopy, onPaste, onDetail, onClear, replacementPending, onReplacementToggle, onSaveReplacementRules }: Props) {
+export function ClipboardPage({ state, onCopy, onPaste, onDetail, onBookmarks, onClear, replacementPending, onReplacementToggle, replacementDraft, replacementDraftConflict, onReplacementDraftChange, onReplacementDraftRebase, onSaveReplacementRules }: Props) {
   const [query, setQuery] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
   const current = state.history.find((item) => item.id === state.currentId);
   const results = useMemo(() => searchHistory(state.history, query), [state.history, query]);
 
@@ -60,27 +67,53 @@ export function ClipboardPage({ state, onCopy, onPaste, onDetail, onClear, repla
     <>
       <header className="brand-header">
         <div className="brand-mark">D</div>
-        <div><h1>DevPilot</h1><p>Form Clipboard</p></div>
+        <div><h1>DevPilot</h1><p>表单剪贴板</p></div>
       </header>
 
-      <GlobalReplacementSettings settings={state.settings} togglePending={replacementPending} onToggle={onReplacementToggle} onSave={onSaveReplacementRules} />
+      <button className="secondary-button full bookmark-entry" onClick={onBookmarks}>
+        <span className="bookmark-entry-label"><SearchIcon /><span>书签搜索</span></span>
+        <ChevronRightIcon className="bookmark-entry-chevron" />
+      </button>
 
       <section className="current-section">
         <span className="eyebrow">最近复制</span>
         {current ? (
           <div className="current-card">
-            <div><h2>{current.name}</h2><p>{metaText(current)}</p>{current.source.title && current.source.title !== current.name && <p className="host">{current.source.title}</p>}</div>
-            <button className="primary-button" onClick={() => onPaste(current)}>粘贴最近表单</button>
+            <div><h2>{current.name}</h2><p>{metaText(current)}</p><p className="host">来源：{current.source.title || current.source.host}</p><p className="field-summary">字段：{current.fields.slice(0, 3).map((field) => field.label || field.name || field.key).join('、')}{current.fields.length > 3 ? '等' : ''}</p></div>
+            <button className="primary-button" onClick={() => onPaste(current)}>预览并填充最近表单</button>
           </div>
         ) : (
-          <div className="empty-card">还没有复制过表单</div>
+          <div className="empty-card">还没有复制过表单。先在网页中点击目标表单的输入框，再复制。</div>
         )}
         <button className="secondary-button full" onClick={onCopy}>复制当前表单</button>
+        <p className="copy-hint">页面有多个表单时，请先点击要复制的表单。</p>
       </section>
 
       <section className="history-section">
-        <div className="section-heading"><h2>表单历史</h2><span>{state.history.length}</span></div>
-        <label className="search-box"><span>⌕</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索名称、网站或字段" /></label>
+        <div className="section-heading"><h2>表单历史</h2><span className="section-count">{state.history.length}</span></div>
+        <div className="search-box">
+          <SearchIcon />
+          <input
+            ref={searchRef}
+            aria-label="搜索表单历史"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="搜索名称、网站或字段"
+          />
+          {query && (
+            <button
+              type="button"
+              className="search-clear"
+              aria-label="清空表单历史搜索"
+              onClick={() => {
+                setQuery('');
+                searchRef.current?.focus();
+              }}
+            >
+              <CloseIcon />
+            </button>
+          )}
+        </div>
         <div className="history-list">
           {results.map((item) => (
             <HistoryItem key={item.id} item={item} current={item.id === state.currentId} onPaste={() => onPaste(item)} onDetail={() => onDetail(item)} />
@@ -91,6 +124,17 @@ export function ClipboardPage({ state, onCopy, onPaste, onDetail, onClear, repla
           <button className="text-button danger" onClick={() => { if (window.confirm('确定清空所有表单剪贴板记录吗？')) void onClear(); }}>清空历史</button>
         )}
       </section>
+
+      <GlobalReplacementSettings
+        settings={state.settings}
+        togglePending={replacementPending}
+        onToggle={onReplacementToggle}
+        draft={replacementDraft}
+        draftConflict={replacementDraftConflict}
+        onDraftChange={onReplacementDraftChange}
+        onDraftRebase={onReplacementDraftRebase}
+        onSave={onSaveReplacementRules}
+      />
     </>
   );
 }

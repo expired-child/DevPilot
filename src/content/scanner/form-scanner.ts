@@ -7,15 +7,22 @@ import type {
   FormField,
   FormScanResult,
 } from '../../modules/form-clipboard/clipboard-types';
+import type { FormCandidateSummary } from '../../shared/messaging/messages';
 import {
   ARIA_RADIO_GROUP_SELECTOR,
   ARIA_TOGGLE_SELECTOR,
+  COMBOBOX_SELECTOR,
+  CONTENT_EDITABLE_SELECTOR,
   CONTROL_COLLECT_SELECTOR,
+  CUSTOM_SELECT_INPUT_HOST_SELECTOR,
   DIALOG_SCOPE_SELECTOR,
+  FIELD_CONTAINER_SELECTOR,
   FORM_SCOPE_SELECTOR,
 } from './control-selectors';
-import { DefaultFieldFilter, type FieldFilter, type FormControlElement } from './field-filter';
+import { DefaultFieldFilter, findNativeSelectWrapper, type FieldFilter, type FormControlElement } from './field-filter';
+import { closestComposed, composedParent, containsComposed, deepActiveElement, querySelectorAllDeep } from './composed-dom';
 import { resolveLabel } from './label-resolver';
+import { scopeIdOf } from './scope-registry';
 import { isRendered } from './visibility';
 
 export interface ScannedField {
@@ -29,10 +36,18 @@ export interface ScannedForm {
   scope: HTMLElement;
 }
 
+/** 聚焦在被过滤的密码框时，仍把当前表单所在 frame 视为目标。 */
+export const isFocusedScannedForm = (scanned: ScannedForm, doc: Document = document): boolean => {
+  const active = deepActiveElement(doc);
+  if (!(active instanceof HTMLElement) || active instanceof HTMLIFrameElement) return false;
+  const insideForm = Boolean(closestComposed(active, 'form, [role="form"], .ant-form, .el-form'));
+  return (insideForm || active.matches(CONTROL_COLLECT_SELECTOR)) && containsComposed(scanned.scope, active);
+};
+
 const selectorText = (value: string): string => value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
 
-const createSelector = (element: FormControlElement): string => {
-  const unique = (selector: string): boolean => element.ownerDocument.querySelectorAll(selector).length === 1;
+const localSelector = (element: HTMLElement, root: Document | ShadowRoot): string => {
+  const unique = (selector: string): boolean => root.querySelectorAll(selector).length === 1;
   if (element.id && unique(`#${CSS.escape(element.id)}`)) {
     return `#${CSS.escape(element.id)}`;
   }
@@ -58,7 +73,20 @@ const createSelector = (element: FormControlElement): string => {
     parts.unshift(`${tag}:nth-of-type(${Math.max(position, 1)})`);
     current = current.parentElement;
   }
-  return `body > ${parts.join(' > ')}`;
+  return root instanceof Document ? `body > ${parts.join(' > ')}` : parts.join(' > ');
+};
+
+const selectorSegments = (element: HTMLElement): string[] => {
+  const root = element.getRootNode();
+  if (root instanceof ShadowRoot) {
+    return [...selectorSegments(root.host as HTMLElement), localSelector(element, root)];
+  }
+  return [localSelector(element, element.ownerDocument)];
+};
+
+const createSelector = (element: FormControlElement): string => {
+  const segments = selectorSegments(element);
+  return segments.length === 1 ? segments[0] : `shadow:${JSON.stringify(segments)}`;
 };
 
 const resolveType = (element: FormControlElement): FieldType => {
@@ -78,6 +106,9 @@ const resolveType = (element: FormControlElement): FieldType => {
   if (element instanceof HTMLTextAreaElement) {
     return 'textarea';
   }
+  if (element.isContentEditable) {
+    return 'textarea';
+  }
   if (element instanceof HTMLSelectElement) {
     return 'select';
   }
@@ -85,10 +116,31 @@ const resolveType = (element: FormControlElement): FieldType => {
     if (element.type === 'checkbox' || element.type === 'radio') {
       return element.type;
     }
+    // month/week 没有独立的 FieldType，按日期处理，避免被全局文本替换规则改写。
+    if (element.type === 'month' || element.type === 'week') {
+      return 'date';
+    }
     const supported: FieldType[] = ['number', 'email', 'url', 'tel', 'date', 'datetime-local', 'time'];
     return supported.includes(element.type as FieldType) ? (element.type as FieldType) : 'text';
   }
   return 'text';
+};
+
+/**
+ * 自定义下拉/开关的根节点常不带 name/id/placeholder，真实属性在内部的原生控件上。
+ * 根节点优先；根节点没有时向内找第一个带该属性的控件，保证字段匹配不丢语义。
+ */
+const attributeOf = (element: FormControlElement, name: string): string | undefined => {
+  const own = element.getAttribute(name);
+  if (own) {
+    return own;
+  }
+  if (element.matches('input, textarea, select')) {
+    return undefined;
+  }
+  const inner = querySelectorAllDeep<HTMLElement>(element, 'input, textarea, select')
+    .find((candidate) => candidate.getAttribute(name));
+  return inner?.getAttribute(name) ?? undefined;
 };
 
 const fieldKey = (field: Omit<FormField, 'key'>): string => {
@@ -100,21 +152,56 @@ const fieldKey = (field: Omit<FormField, 'key'>): string => {
   return `selector:${field.selector ?? ''}`;
 };
 
+/** 原生 select 是否被第三方替身隐藏：只有这种情况才需要排除替身内部控件。 */
+const isHiddenNativeSelect = (element: FormControlElement): element is HTMLSelectElement => {
+  if (!(element instanceof HTMLSelectElement)) return false;
+  const style = getComputedStyle(element);
+  return Boolean(
+    element.hidden || element.getAttribute('aria-hidden') === 'true' ||
+    style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0',
+  );
+};
+
 export const collectFormControls = (scope: ParentNode): FormControlElement[] => {
-  const candidates = [...scope.querySelectorAll<FormControlElement>(CONTROL_COLLECT_SELECTOR)];
+  const candidates = querySelectorAllDeep<FormControlElement>(scope, CONTROL_COLLECT_SELECTOR);
   const collected = new Set(candidates);
+  // 被 select2/chosen/choices 等隐藏的原生 select 才是真正提交的控件；
+  // 替身里的搜索框、role=combobox 展示节点不是独立字段，统一排除，避免复制出重复/空字段。
+  const wrapperInternals = new Set<Element>();
+  for (const element of candidates) {
+    if (!isHiddenNativeSelect(element)) continue;
+    const wrapper = findNativeSelectWrapper(element);
+    if (!wrapper) continue;
+    for (const inner of querySelectorAllDeep(wrapper, CONTROL_COLLECT_SELECTOR)) {
+      if (inner !== element) wrapperInternals.add(inner);
+    }
+    if (wrapper !== element && wrapper.matches(CONTROL_COLLECT_SELECTOR)) wrapperInternals.add(wrapper);
+  }
   return candidates.filter((element) => {
+    if (wrapperInternals.has(element)) return false;
     const customRoot = findCustomSelectRoot(element);
     if (customRoot && customRoot !== element && collected.has(customRoot)) {
       return false;
     }
     const switchRoot = findSwitchRoot(element);
-    if (switchRoot && switchRoot !== element && scope.contains(switchRoot)) {
+    if (switchRoot && switchRoot !== element && scope instanceof Element && containsComposed(scope, switchRoot)) {
       return false;
     }
+    // 组合框容器与内部 input 同时带 role=combobox 时只保留外层容器，
+    // 与 AntD 等框架「根节点代表整个下拉」的结构保持一致，避免同一字段出现两次。
+    const parent = composedParent(element);
+    if (element.matches(COMBOBOX_SELECTOR)) {
+      const outerCombobox = parent && closestComposed(parent, CUSTOM_SELECT_INPUT_HOST_SELECTOR);
+      if (outerCombobox && scope instanceof Element && containsComposed(scope, outerCombobox) &&
+        collected.has(outerCombobox)) {
+        return false;
+      }
+    }
     // 嵌套的 ARIA 控件只保留最外层（从父级开始找，元素自身不会被自身匹配）。
-    const ariaRoot = element.parentElement?.closest<HTMLElement>(ARIA_TOGGLE_SELECTOR) ?? null;
-    return !ariaRoot || !scope.contains(ariaRoot);
+    const ariaRoot = parent && closestComposed(parent, ARIA_TOGGLE_SELECTOR);
+    if (ariaRoot && scope instanceof Element && containsComposed(scope, ariaRoot)) return false;
+    const editableRoot = element.matches(CONTENT_EDITABLE_SELECTOR) && parent && closestComposed(parent, CONTENT_EDITABLE_SELECTOR);
+    return !editableRoot || !(scope instanceof Element && containsComposed(scope, editableRoot));
   });
 };
 
@@ -124,9 +211,14 @@ const isRadioLike = (element: FormControlElement): boolean =>
 /** 单选组标识：原生 radio 以 name/id 为准（HTML 语义），ARIA radio 以 radiogroup 容器为准。 */
 const radioGroupKey = (element: FormControlElement): string => {
   if (element instanceof HTMLInputElement) {
-    return element.name || element.id || createSelector(element);
+    const root = element.getRootNode();
+    const form = closestComposed(element, 'form');
+    const namespace = form && form.getRootNode() === root
+      ? createSelector(form)
+      : root instanceof ShadowRoot ? createSelector(root.host as HTMLElement) : 'document';
+    return `${namespace}:${element.name || element.id || createSelector(element)}`;
   }
-  const group = element.closest<HTMLElement>(ARIA_RADIO_GROUP_SELECTOR);
+  const group = closestComposed(element, ARIA_RADIO_GROUP_SELECTOR);
   if (group) {
     return `group:${
       group.getAttribute('name') ??
@@ -143,8 +235,14 @@ const isRadioChecked = (element: FormControlElement): boolean =>
     ? element.checked
     : element.getAttribute('aria-checked') === 'true' || element.getAttribute('data-state') === 'checked';
 
-const scopePenalty = (scope: HTMLElement): number =>
-  /search|filter|query|pagination/i.test(`${scope.id} ${scope.className}`) ? 100 : 0;
+const scopePenalty = (scope: HTMLElement): number => {
+  if (/search|filter|query|pagination/i.test(`${scope.id} ${scope.className}`)) return 100;
+  if (scope.matches('form') && querySelectorAllDeep(scope, 'input[type="search"]').length > 0 &&
+    querySelectorAllDeep(scope, 'input:not([type="search"]):not([type="hidden"]):not([type="submit"]), textarea, select, [role="combobox"]').length === 0) {
+    return 100;
+  }
+  return 0;
+};
 
 export interface RankedScope {
   scope: HTMLElement;
@@ -167,26 +265,41 @@ export const rankScopes = (candidates: HTMLElement[], filter: FieldFilter): Rank
     })
     .sort((left, right) => right.score - left.score);
 
+/** 无 form 容器时，多个同级字段项属于同一组，避免只复制第一个字段。 */
+const siblingFieldGroup = (scope: HTMLElement, filter: FieldFilter): HTMLElement | null => {
+  const root = scope.getRootNode();
+  const parent = scope.parentElement ?? (root instanceof ShadowRoot ? root.host as HTMLElement : null);
+  if (!parent || parent === document.body || !scope.matches(FIELD_CONTAINER_SELECTOR)) return null;
+  const children = scope.parentElement?.children ?? (root instanceof ShadowRoot ? root.children : []);
+  const siblings = [...children].filter((child): child is HTMLElement =>
+    child instanceof HTMLElement && child.matches(FIELD_CONTAINER_SELECTOR) && isRendered(child) &&
+    collectFormControls(child).some((element) => filter.shouldInclude(element, { scope: parent })),
+  );
+  return siblings.length > 1 && siblings.includes(scope) ? parent : null;
+};
+
 const chooseScope = (filter: FieldFilter): HTMLElement => {
-  const candidates = [...new Set(document.querySelectorAll<HTMLElement>(FORM_SCOPE_SELECTOR))].filter(isRendered);
+  const candidates = [...new Set(querySelectorAllDeep(document, FORM_SCOPE_SELECTOR))].filter(isRendered);
   // 弹窗是操作边界，不能用字段数量与背景页面竞争；无可复制字段时也不能退回背景。
   const dialogs = candidates.filter((scope) => scope.matches(DIALOG_SCOPE_SELECTOR) && (
     scope.matches('[role="dialog"], dialog[open], [aria-modal="true"]') ||
-    scope.querySelector(CONTROL_COLLECT_SELECTOR)
+    querySelectorAllDeep(scope, CONTROL_COLLECT_SELECTOR).length > 0
   ));
-  const active = document.activeElement;
-  const focusedDialogs = dialogs.filter((scope) => active && scope.contains(active));
+  const active = deepActiveElement(document);
+  const focusedDialogs = dialogs.filter((scope) => active && containsComposed(scope, active));
   if (dialogs.length > 0) {
     return rankScopes(focusedDialogs.length ? focusedDialogs : dialogs, filter)[0].scope;
   }
-  const focusedForm = active?.closest<HTMLElement>('form, .ant-form, .el-form');
+  const focusedForm = active && closestComposed(active, 'form, [role="form"], .ant-form, .el-form');
   if (focusedForm && isRendered(focusedForm)) return focusedForm;
   // main 等公共容器不能把多个独立表单合并为一次复制。
-  const forms = candidates.filter((scope) => scope.matches('form, .ant-form, .el-form'));
+  const forms = candidates.filter((scope) => scope.matches('form, [role="form"], .ant-form, .el-form'));
   const rankedForms = rankScopes(forms, filter);
   if (rankedForms[0]?.score > 0) return rankedForms[0].scope;
   const ranked = rankScopes(candidates, filter);
-  return ranked[0]?.score > 0 ? ranked[0].scope : document.body;
+  const focused = ranked.find((entry) => active && containsComposed(entry.scope, active));
+  const selected = focused?.score ? focused : ranked[0];
+  return selected?.score > 0 ? siblingFieldGroup(selected.scope, filter) ?? selected.scope : document.body;
 };
 
 /** 表单可能所在的容器：命中后容器内的标题就是「这个表单」的名字（如 .ant-modal-title）。 */
@@ -204,7 +317,7 @@ const cleanTitle = (value?: string | null): string | undefined => {
 
 const firstTitleText = (nodes: Iterable<HTMLElement>): string | undefined => {
   for (const node of nodes) {
-    if (node.getAttribute('aria-hidden') === 'true' || node.checkVisibility?.() === false) {
+    if (!isRendered(node)) {
       continue;
     }
     const title = cleanTitle(node.textContent);
@@ -221,10 +334,10 @@ const firstTitleText = (nodes: Iterable<HTMLElement>): string | undefined => {
  * 容器标题与业务字段值同时存在时组合，如「编辑网关 · gateway-a」。
  */
 export const suggestedName = (scope: HTMLElement, fields: FormField[]): string | undefined => {
-  const container = scope.closest<HTMLElement>(FORM_CONTAINER_SELECTOR);
+  const container = closestComposed(scope, FORM_CONTAINER_SELECTOR);
   const containerTitle =
-    firstTitleText(scope.querySelectorAll<HTMLElement>(FORM_TITLE_SELECTOR)) ??
-    firstTitleText(container?.querySelectorAll<HTMLElement>(FORM_TITLE_SELECTOR) ?? []);
+    firstTitleText(querySelectorAllDeep(scope, FORM_TITLE_SELECTOR)) ??
+    firstTitleText(container ? querySelectorAllDeep(container, FORM_TITLE_SELECTOR) : []);
 
   const obviousName = fields.find((field) => {
     const hint = `${field.name ?? ''} ${field.id ?? ''} ${field.label ?? ''}`;
@@ -239,13 +352,13 @@ export const suggestedName = (scope: HTMLElement, fields: FormField[]): string |
   }
 
   for (const level of HEADING_LEVELS) {
-    const heading = firstTitleText(scope.querySelectorAll<HTMLElement>(level));
+    const heading = firstTitleText(querySelectorAllDeep(scope, level));
     if (heading) {
       return heading;
     }
   }
   return (
-    firstTitleText(scope.querySelectorAll<HTMLElement>('[role="heading"]')) ??
+    firstTitleText(querySelectorAllDeep(scope, '[role="heading"]')) ??
     cleanTitle(document.title) ??
     undefined
   );
@@ -256,7 +369,7 @@ export const scanForm = (
   filter: FieldFilter = new DefaultFieldFilter(),
   fixedScope?: HTMLElement,
 ): ScannedForm => {
-  // doc 参数用于后续测试和 iframe 扩展；当前内容脚本始终处理所属 document。
+  // 每个 iframe 有独立内容脚本与 document；doc 参数保留为兼容调用接口。
   void doc;
   const scope = fixedScope ?? chooseScope(filter);
   const elements = collectFormControls(scope).filter((element) => filter.shouldInclude(element, { scope }));
@@ -279,10 +392,10 @@ export const scanForm = (
     const selector = createSelector(element);
     const partial: Omit<FormField, 'key'> = {
       label: resolveLabel(element),
-      name: element.getAttribute('name') || undefined,
-      id: element.id || undefined,
-      placeholder: element.getAttribute('placeholder') || undefined,
-      ariaLabel: element.getAttribute('aria-label') || undefined,
+      name: attributeOf(element, 'name'),
+      id: element.id || attributeOf(element, 'id'),
+      placeholder: attributeOf(element, 'placeholder'),
+      ariaLabel: attributeOf(element, 'aria-label'),
       selector,
       type: resolveType(element),
       value: adapter.getValue(element),
@@ -324,6 +437,69 @@ export const scanForm = (
         host: location.host,
       },
       fields,
+      scopeId: scopeIdOf(scope),
     },
   };
+};
+
+/**
+ * 列出当前 frame 的候选表单：复用 chooseScope 的可见性、弹窗与焦点规则所用的识别基础，
+ * 去重控件集合相同的嵌套作用域（如弹窗容器与其内部 <form>），只返回概要不返回字段值。
+ */
+export const listFormCandidates = (
+  filter: FieldFilter = new DefaultFieldFilter(),
+): FormCandidateSummary[] => {
+  const formSelector = 'form, [role="form"], .ant-form, .el-form';
+  const sameControls = (left: Set<HTMLElement>, right: Set<HTMLElement>): boolean =>
+    left.size === right.size && [...left].every((element) => right.has(element));
+  const candidates = [...new Set(querySelectorAllDeep(document, FORM_SCOPE_SELECTOR))]
+    .filter(isRendered)
+    .map((scope) => {
+      const scanned = scanForm(document, filter, scope);
+      return { scope, scanned, controls: new Set(scanned.controls.map(({ element }) => element)) };
+    })
+    .filter(({ controls }) => controls.size > 0);
+  // 无显式表单容器的普通页面沿用旧扫描路径，不丢失直接放在 body 下的字段。
+  if (candidates.length === 0) {
+    const scanned = scanForm(document, filter, document.body);
+    if (scanned.controls.length > 0) {
+      candidates.push({
+        scope: document.body,
+        scanned,
+        controls: new Set(scanned.controls.map(({ element }) => element)),
+      });
+    }
+  }
+  const hasBusinessCandidate = candidates.some(({ scope }) => scopePenalty(scope) < 100);
+  const eligibleCandidates = hasBusinessCandidate
+    ? candidates.filter(({ scope }) => scopePenalty(scope) < 100 || scope.matches(DIALOG_SCOPE_SELECTOR))
+    : candidates;
+  const concreteForms = eligibleCandidates.filter(({ scope }) => scope.matches(formSelector));
+  // 弹窗优先保留操作边界；普通 form 优先于 main 等泛容器。
+  eligibleCandidates.sort((left, right) => {
+    const priority = (scope: HTMLElement): number =>
+      scope.matches(DIALOG_SCOPE_SELECTOR) ? 0 : scope.matches(formSelector) ? 1 : 2;
+    return priority(left.scope) - priority(right.scope);
+  });
+  const seenControls: Array<Set<HTMLElement>> = [];
+  const summaries: FormCandidateSummary[] = [];
+  for (const { scope, scanned, controls } of eligibleCandidates) {
+    const innerForms = concreteForms
+      .filter((entry) => entry.scope !== scope && containsComposed(scope, entry.scope))
+      .map((entry) => entry.controls)
+      .filter((entry, index, all) => all.findIndex((other) => sameControls(entry, other)) === index);
+    // main、弹窗等外层容器不能把两个独立表单合成一个候选。
+    if (innerForms.length > 1 || seenControls.some((entry) => sameControls(entry, controls))) continue;
+    seenControls.push(controls);
+    summaries.push({
+      scopeId: scopeIdOf(scope),
+      title: scanned.result.suggestedName,
+      fieldCount: scanned.result.fields.length,
+      fieldLabels: scanned.result.fields.slice(0, 3).map((field) => field.label || field.name || field.key),
+      dialog: scope.matches(DIALOG_SCOPE_SELECTOR),
+      focused: isFocusedScannedForm(scanned),
+      source: scanned.result.source,
+    });
+  }
+  return summaries;
 };

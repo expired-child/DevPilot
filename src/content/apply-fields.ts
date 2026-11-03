@@ -1,6 +1,8 @@
 import { getFieldAdapter } from './adapters';
 import { scanForm, type ScannedField } from './scanner/form-scanner';
-import type { FieldAssignment, FillReport, FormValue } from '../modules/form-clipboard/clipboard-types';
+import { scopeElement } from './scanner/scope-registry';
+import type { FieldAssignment, FillReport, FormTargetSnapshot, FormValue } from '../modules/form-clipboard/clipboard-types';
+import { createFingerprint } from '../modules/form-clipboard/fingerprint';
 
 /** 每次重扫的间隔：足够 React 完成一次联动渲染，又不至于让用户感到卡顿。 */
 const RETRY_INTERVAL_MS = 100;
@@ -75,9 +77,22 @@ const findTarget = async (
   return undefined;
 };
 
-export const applyFields = async (assignments: FieldAssignment[]): Promise<FillReport> => {
+export const applyFields = async (assignments: FieldAssignment[], expectedTarget?: FormTargetSnapshot): Promise<FillReport> => {
+  // 带作用域标识时必须找回扫描时的同一个表单容器；
+  // 作用域已被重渲染替换就拒绝填充，不自动换选其他表单。
+  const lockedScope = expectedTarget?.scopeId ? scopeElement(expectedTarget.scopeId) : undefined;
+  if (expectedTarget?.scopeId && (!lockedScope || !lockedScope.isConnected)) {
+    throw new Error('目标表单已变化，请重新扫描后再填充。');
+  }
   // 整次填充锁定表单；控件失焦或下拉弹出后不能转而扫描其他表单。
-  const { scope } = scanForm();
+  const scanned = scanForm(document, undefined, lockedScope);
+  if (expectedTarget && (
+    scanned.result.source.url !== expectedTarget.url ||
+    createFingerprint(scanned.result.source.host, scanned.result.fields) !== expectedTarget.fingerprint
+  )) {
+    throw new Error('目标页面或表单已变化，请重新执行填充。');
+  }
+  const { scope } = scanned;
   const report: FillReport = { success: 0, skipped: 0, failed: 0, issues: [] };
   const budget: WaitBudget = { remainingMs: RETRY_BUDGET_MS };
   const applied: FieldAssignment[] = [];

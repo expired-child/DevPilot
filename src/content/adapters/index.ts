@@ -1,6 +1,7 @@
 import type { FormControlElement } from '../scanner/field-filter';
 import { AriaToggleAdapter } from './aria-toggle-adapter';
 import { CheckboxAdapter } from './checkbox-adapter';
+import { ContentEditableAdapter } from './contenteditable-adapter';
 import { CustomSelectAdapter } from './custom-select-adapter';
 import { DatePickerAdapter } from './date-picker-adapter';
 import type { FieldAdapter } from './field-adapter';
@@ -14,6 +15,7 @@ const adapters: FieldAdapter[] = [
   // 日期控件要排在下拉之前：antd 日期面板里没有可点的 option，走下拉流程必然失败。
   new DatePickerAdapter(),
   new CustomSelectAdapter(),
+  new ContentEditableAdapter(),
   new SwitchAdapter(),
   new AriaToggleAdapter(),
   new CheckboxAdapter(),

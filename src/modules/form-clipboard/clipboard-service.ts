@@ -1,13 +1,13 @@
 import type { ClipboardRepository } from './clipboard-repository';
 import type {
   FormClipboardItem,
+  FormClipboardDetails,
   FormClipboardState,
-  FormField,
   FormScanResult,
   ReplacementRule,
 } from './clipboard-types';
 import { createFingerprint } from './fingerprint';
-import { validateReplacementRules } from './replacement-service';
+import { sameReplacementRules, validateReplacementRules } from './replacement-service';
 
 const ruleKey = (host: string, fieldKey: string): string => `${host}::${fieldKey}`;
 
@@ -33,11 +33,6 @@ export class ClipboardService {
 
   getState(): Promise<FormClipboardState> {
     return this.repository.get();
-  }
-
-  async getCurrent(): Promise<FormClipboardItem | null> {
-    const state = await this.repository.get();
-    return state.history.find((item) => item.id === state.currentId) ?? null;
   }
 
   async capture(scan: FormScanResult): Promise<FormClipboardItem> {
@@ -73,8 +68,39 @@ export class ClipboardService {
     return item;
   }
 
-  async rename(id: string, name: string): Promise<void> {
-    await this.updateItem(id, (item) => ({ ...item, name: name.trim() || item.name }));
+  async saveDetails(id: string, details: FormClipboardDetails): Promise<FormClipboardItem> {
+    for (const field of details.fields) {
+      const error = validateReplacementRules(field.replacementRules);
+      if (error) throw new Error(`${field.label || field.name || field.key}：${error}`);
+    }
+    const state = await this.repository.get();
+    const item = state.history.find((entry) => entry.id === id);
+    if (!item) throw new Error('表单记录已不存在，请返回历史重新选择。');
+
+    const fieldKeys = new Set(item.fields.map((field) => field.key));
+    const uniqueFieldKeys = [...new Set(details.uniqueFieldKeys)].filter((key) => fieldKeys.has(key));
+    const excludedFieldKeys = [...new Set(details.excludedFieldKeys)].filter((key) => fieldKeys.has(key));
+    const previousUnique = new Set(item.uniqueFieldKeys ?? []);
+    const nextUnique = new Set(uniqueFieldKeys);
+    for (const key of fieldKeys) {
+      if (previousUnique.has(key) !== nextUnique.has(key)) {
+        state.fieldRules[ruleKey(item.source.host, key)] = { unique: nextUnique.has(key) };
+      }
+    }
+
+    const updated: FormClipboardItem = {
+      ...item,
+      name: details.name.trim() || item.name,
+      fields: details.fields,
+      uniqueFieldKeys,
+      excludedFieldKeys,
+      pinned: details.pinned,
+      fingerprint: createFingerprint(item.source.host, details.fields),
+      updatedAt: this.now(),
+    };
+    state.history = sortHistory(state.history.map((entry) => entry.id === id ? updated : entry));
+    await this.repository.save(state);
+    return updated;
   }
 
   async remove(id: string): Promise<void> {
@@ -93,77 +119,20 @@ export class ClipboardService {
     await this.repository.save(state);
   }
 
-  async togglePin(id: string): Promise<void> {
-    await this.updateItem(id, (item) => ({ ...item, pinned: !item.pinned }));
-  }
-
-  async saveFields(id: string, fields: FormField[]): Promise<void> {
-    for (const field of fields) {
-      const error = validateReplacementRules(field.replacementRules);
-      if (error) throw new Error(`${field.label || field.name || field.key}：${error}`);
-    }
-    await this.updateItem(id, (item) => ({
-      ...item,
-      fields,
-      fingerprint: createFingerprint(item.source.host, fields),
-    }));
-  }
-
-  async setUniqueField(id: string, fieldKey: string, unique: boolean): Promise<void> {
-    const state = await this.repository.get();
-    const item = state.history.find((entry) => entry.id === id);
-    if (!item) {
-      return;
-    }
-
-    const keys = new Set(item.uniqueFieldKeys ?? []);
-    if (unique) {
-      keys.add(fieldKey);
-    } else {
-      keys.delete(fieldKey);
-    }
-    item.uniqueFieldKeys = [...keys];
-    state.fieldRules[ruleKey(item.source.host, fieldKey)] = { unique };
-    await this.repository.save(state);
-  }
-
-  async setFieldExcluded(id: string, fieldKey: string, excluded: boolean): Promise<void> {
-    await this.updateItem(id, (item) => {
-      const keys = new Set(item.excludedFieldKeys ?? []);
-      if (excluded) {
-        keys.add(fieldKey);
-      } else {
-        keys.delete(fieldKey);
-      }
-      return { ...item, excludedFieldKeys: [...keys] };
-    });
-  }
-
   async setReplacementEnabled(enabled: boolean): Promise<void> {
     const state = await this.repository.get();
     state.settings.replacementEnabled = enabled;
     await this.repository.save(state);
   }
 
-  async saveReplacementRules(rules: ReplacementRule[]): Promise<void> {
+  async saveReplacementRules(rules: ReplacementRule[], expectedRules: ReplacementRule[]): Promise<void> {
     const error = validateReplacementRules(rules);
     if (error) throw new Error(error);
     const state = await this.repository.get();
+    if (!sameReplacementRules(state.settings.replacementRules ?? [], expectedRules)) {
+      throw new Error('全局规则已在其他窗口更新，请核对当前规则后重试。');
+    }
     state.settings.replacementRules = rules;
-    await this.repository.save(state);
-  }
-
-  private async updateItem(
-    id: string,
-    updater: (item: FormClipboardItem) => FormClipboardItem,
-  ): Promise<void> {
-    const state = await this.repository.get();
-    const timestamp = this.now();
-    state.history = sortHistory(
-      state.history.map((item) =>
-        item.id === id ? { ...updater(item), updatedAt: timestamp } : item,
-      ),
-    );
     await this.repository.save(state);
   }
 
