@@ -5,6 +5,7 @@ import {
   searchBookmarks,
   type BookmarkEntry,
 } from '../../modules/bookmark-search/bookmark-service';
+import { BackIcon, CloseIcon, SearchIcon } from '../components/icons';
 
 interface Props {
   focusToken: number;
@@ -21,12 +22,12 @@ function BookmarkItem({ entry, active, onOpen }: { entry: BookmarkEntry; active:
       role="option"
       id={`bookmark-option-${entry.id}`}
       aria-selected={active}
-      className={`history-item history-open${active ? ' active' : ''}`}
+      className={`history-item history-open bookmark-result${active ? ' active' : ''}`}
       onClick={onOpen}
     >
-      <div className="history-name"><strong>{entry.title}</strong></div>
-      {entry.folderPath && <div className="meta">{entry.folderPath}</div>}
-      <div className="host" title={entry.url}>{entry.url}</div>
+      <div className="history-name"><strong title={entry.title}>{entry.title}</strong></div>
+      {entry.folderPath && <div className="meta" title={entry.folderPath}>{entry.folderPath}</div>}
+      <div className="host" title={entry.url} dir="ltr">{entry.url}</div>
     </div>
   );
 }
@@ -148,15 +149,15 @@ export function BookmarkSearchPage({ focusToken, onBack }: Props) {
   return (
     <>
       <header className="page-header">
-        <button className="icon-button" onClick={onBack} aria-label="返回表单历史">←</button>
+        <button className="icon-button" onClick={onBack} aria-label="返回表单历史"><BackIcon /></button>
         <div><span className="eyebrow">书签搜索</span><h1>浏览器书签</h1></div>
-        <button className="icon-button bookmark-close" onClick={() => void closePanel()} aria-label="关闭书签搜索侧栏" title="关闭侧栏（Esc）">×</button>
+        <button className="icon-button bookmark-close" onClick={() => void closePanel()} aria-label="关闭书签搜索侧栏" title="关闭侧栏（Esc）"><CloseIcon /></button>
       </header>
 
       <section className="history-section">
-        <div className="section-heading"><h2>书签</h2><span>{searching ? results.length : entries.length}</span></div>
-        <label className="search-box">
-          <span aria-hidden="true">⌕</span>
+        <div className="section-heading"><h2>书签</h2><span className="section-count">{searching ? results.length : entries.length}</span></div>
+        <div className="search-box">
+          <SearchIcon />
           <input
             ref={inputRef}
             role="combobox"
@@ -173,7 +174,21 @@ export function BookmarkSearchPage({ focusToken, onBack }: Props) {
             onKeyDown={handleKeyDown}
             placeholder="搜索书签名称、网址或文件夹"
           />
-        </label>
+          {query && (
+            <button
+              type="button"
+              className="search-clear"
+              aria-label="清空书签搜索"
+              onClick={() => {
+                setQuery('');
+                setActiveId(null);
+                inputRef.current?.focus();
+              }}
+            >
+              <CloseIcon />
+            </button>
+          )}
+        </div>
         <p className="visually-hidden" role="status">{searching ? `找到 ${results.length} 个书签` : ''}</p>
         {error && (
           <div className="inline-error" role="alert">{error}

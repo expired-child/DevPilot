@@ -1,7 +1,8 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 
 import { searchHistory } from '../../modules/form-clipboard/clipboard-service';
 import type { FormClipboardItem, FormClipboardState, ReplacementRule } from '../../modules/form-clipboard/clipboard-types';
+import { ChevronRightIcon, CloseIcon, SearchIcon } from '../components/icons';
 import { GlobalReplacementSettings } from './GlobalReplacementSettings';
 
 interface Props {
@@ -58,6 +59,7 @@ function HistoryItem({ item, current, onPaste, onDetail }: { item: FormClipboard
 
 export function ClipboardPage({ state, onCopy, onPaste, onDetail, onBookmarks, onClear, replacementPending, onReplacementToggle, replacementDraft, replacementDraftConflict, onReplacementDraftChange, onReplacementDraftRebase, onSaveReplacementRules }: Props) {
   const [query, setQuery] = useState('');
+  const searchRef = useRef<HTMLInputElement>(null);
   const current = state.history.find((item) => item.id === state.currentId);
   const results = useMemo(() => searchHistory(state.history, query), [state.history, query]);
 
@@ -68,18 +70,10 @@ export function ClipboardPage({ state, onCopy, onPaste, onDetail, onBookmarks, o
         <div><h1>DevPilot</h1><p>表单剪贴板</p></div>
       </header>
 
-      <button className="secondary-button full bookmark-entry" onClick={onBookmarks}>⌕ 书签搜索</button>
-
-      <GlobalReplacementSettings
-        settings={state.settings}
-        togglePending={replacementPending}
-        onToggle={onReplacementToggle}
-        draft={replacementDraft}
-        draftConflict={replacementDraftConflict}
-        onDraftChange={onReplacementDraftChange}
-        onDraftRebase={onReplacementDraftRebase}
-        onSave={onSaveReplacementRules}
-      />
+      <button className="secondary-button full bookmark-entry" onClick={onBookmarks}>
+        <span className="bookmark-entry-label"><SearchIcon /><span>书签搜索</span></span>
+        <ChevronRightIcon className="bookmark-entry-chevron" />
+      </button>
 
       <section className="current-section">
         <span className="eyebrow">最近复制</span>
@@ -96,8 +90,30 @@ export function ClipboardPage({ state, onCopy, onPaste, onDetail, onBookmarks, o
       </section>
 
       <section className="history-section">
-        <div className="section-heading"><h2>表单历史</h2><span>{state.history.length}</span></div>
-        <label className="search-box"><span aria-hidden="true">⌕</span><input aria-label="搜索表单历史" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="搜索名称、网站或字段" /></label>
+        <div className="section-heading"><h2>表单历史</h2><span className="section-count">{state.history.length}</span></div>
+        <div className="search-box">
+          <SearchIcon />
+          <input
+            ref={searchRef}
+            aria-label="搜索表单历史"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="搜索名称、网站或字段"
+          />
+          {query && (
+            <button
+              type="button"
+              className="search-clear"
+              aria-label="清空表单历史搜索"
+              onClick={() => {
+                setQuery('');
+                searchRef.current?.focus();
+              }}
+            >
+              <CloseIcon />
+            </button>
+          )}
+        </div>
         <div className="history-list">
           {results.map((item) => (
             <HistoryItem key={item.id} item={item} current={item.id === state.currentId} onPaste={() => onPaste(item)} onDetail={() => onDetail(item)} />
@@ -108,6 +124,17 @@ export function ClipboardPage({ state, onCopy, onPaste, onDetail, onBookmarks, o
           <button className="text-button danger" onClick={() => { if (window.confirm('确定清空所有表单剪贴板记录吗？')) void onClear(); }}>清空历史</button>
         )}
       </section>
+
+      <GlobalReplacementSettings
+        settings={state.settings}
+        togglePending={replacementPending}
+        onToggle={onReplacementToggle}
+        draft={replacementDraft}
+        draftConflict={replacementDraftConflict}
+        onDraftChange={onReplacementDraftChange}
+        onDraftRebase={onReplacementDraftRebase}
+        onSave={onSaveReplacementRules}
+      />
     </>
   );
 }

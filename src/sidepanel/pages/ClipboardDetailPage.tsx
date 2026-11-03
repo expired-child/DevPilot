@@ -2,6 +2,7 @@ import { useRef, useState, type Dispatch, type SetStateAction } from 'react';
 
 import type { FormClipboardDetails, FormClipboardItem, FormField, ReplacementRule } from '../../modules/form-clipboard/clipboard-types';
 import { validateReplacementRules } from '../../modules/form-clipboard/replacement-service';
+import { BackIcon } from '../components/icons';
 import { ReplacementRulesEditor } from './ReplacementRulesEditor';
 
 interface Props {
@@ -99,7 +100,7 @@ export function ClipboardDetailPage({ item, onBack, onPaste, onSave, onDelete }:
 
   return (
     <>
-      <header className="page-header"><button className="icon-button" disabled={saving || openingPreview} onClick={leave} aria-label="返回表单历史">←</button><div><span className="eyebrow">剪贴板详情</span><h1>{item.name}</h1></div></header>
+      <header className="page-header"><button className="icon-button" disabled={saving || openingPreview} onClick={leave} aria-label="返回表单历史"><BackIcon /></button><div><span className="eyebrow">剪贴板详情</span><h1 title={item.name}>{item.name}</h1></div></header>
 
       <section className="detail-card">
         <label className="field-label">名称<input value={name} disabled={saving || openingPreview} onChange={(event) => setName(event.target.value)} /></label>

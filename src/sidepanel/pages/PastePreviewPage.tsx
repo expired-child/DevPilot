@@ -13,6 +13,7 @@ import type {
   FormValue,
 } from '../../modules/form-clipboard/clipboard-types';
 import { validateUniqueFields } from '../../modules/form-clipboard/validation-service';
+import { BackIcon } from '../components/icons';
 
 interface Props {
   item: FormClipboardItem;
@@ -156,7 +157,7 @@ export function PastePreviewPage({ item, settings, replacementPending, onReplace
 
   return (
     <>
-      <header className="page-header"><button className="icon-button" onClick={onBack} aria-label="返回表单历史">←</button><div><span className="eyebrow">粘贴前检查</span><h1>粘贴预览</h1></div></header>
+      <header className="page-header"><button className="icon-button" onClick={onBack} aria-label="返回表单历史"><BackIcon /></button><div><span className="eyebrow">粘贴前检查</span><h1>粘贴预览</h1></div></header>
       <section className="preview-summary"><div><span>目标页面</span><strong>{targetTitle || '当前页面'}</strong></div><div><span>来源</span><strong>{item.name}</strong></div></section>
       {!report && <button className="text-button refresh-preview" disabled={filling || refreshing} onClick={() => void refresh()}>{refreshing ? '正在扫描…' : '重新扫描当前页'}</button>}
       <section className="input-section"><label className="replacement-toggle"><input type="checkbox" role="switch" aria-label="启用输入值替换" checked={settings.replacementEnabled === true} disabled={replacementPending || filling || refreshing || Boolean(report)} onChange={(event) => void onReplacementToggle(event.target.checked)} />输入值替换：{settings.replacementEnabled ? '已开启' : '已关闭'}</label><p className="replacement-help">此开关也影响快捷键粘贴；关闭后不执行全局或字段替换。</p></section>

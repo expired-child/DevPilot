@@ -1,4 +1,5 @@
 import { recommendedCandidate, type CandidateOption } from '../../shared/messaging/tab-messaging';
+import { BackIcon, RefreshIcon } from '../components/icons';
 
 interface Props {
   candidates: CandidateOption[];
@@ -14,13 +15,13 @@ export function FormCandidatesPage({ candidates, title, onSelect, onRefresh, onB
   return (
     <>
       <header className="page-header">
-        <button className="icon-button" onClick={onBack} aria-label="返回表单历史">←</button>
-        <div><span className="eyebrow">选择目标</span><h1>{title}</h1></div>
-        <button className="icon-button" onClick={onRefresh} aria-label="重新扫描目标页" title="重新扫描目标页">⟳</button>
+        <button className="icon-button" onClick={onBack} aria-label="返回表单历史"><BackIcon /></button>
+        <div><span className="eyebrow">选择目标</span><h1 title={title}>{title}</h1></div>
+        <button className="icon-button" onClick={onRefresh} aria-label="重新扫描目标页" title="重新扫描目标页"><RefreshIcon /></button>
       </header>
 
       <section className="history-section">
-        <div className="section-heading"><h2>候选表单</h2><span>{candidates.length}</span></div>
+        <div className="section-heading"><h2>候选表单</h2><span className="section-count">{candidates.length}</span></div>
         <div className="history-list">
           {candidates.length === 0 ? (
             <div className="empty-list">没有可用的表单，请重新扫描目标页。</div>
@@ -32,7 +33,7 @@ export function FormCandidatesPage({ candidates, title, onSelect, onRefresh, onB
                 aria-label={`选择表单“${option.title || '未命名表单'}”`}
               >
                 <div className="history-name">
-                  <strong>{option.title || '未命名表单'}</strong>
+                  <strong title={option.title || '未命名表单'}>{option.title || '未命名表单'}</strong>
                   {option.scopeId === recommended?.scopeId && option.frameId === recommended.frameId && <span className="recommended-badge">推荐</span>}
                 </div>
                 <div className="meta">
