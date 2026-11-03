@@ -16,6 +16,10 @@ export const readSwitchChecked = (root: HTMLElement): boolean => {
   const ariaChecked = root.getAttribute('aria-checked');
   if (ariaChecked === 'true') return true;
   if (ariaChecked === 'false') return false;
+  // Radix/shadcn 等用 data-state 表达状态，部分实现不同步 aria-checked。
+  const dataState = root.getAttribute('data-state');
+  if (dataState === 'checked') return true;
+  if (dataState === 'unchecked') return false;
   if (hasCheckedClass(root)) return true;
   const input = switchInput(root);
   return input ? input.checked : false;

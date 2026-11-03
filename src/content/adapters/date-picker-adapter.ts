@@ -1,11 +1,17 @@
 import type { FormValue } from '../../modules/form-clipboard/clipboard-types';
-import { DATE_PICKER_ROOT_SELECTOR } from '../scanner/control-selectors';
+import { CASCADER_ROOT_SELECTOR, DATE_PICKER_ROOT_SELECTOR } from '../scanner/control-selectors';
 import { closestComposed } from '../scanner/composed-dom';
 import type { FormControlElement } from '../scanner/field-filter';
 import { dispatchValueEvents, setNativeValue, type FieldAdapter } from './field-adapter';
 
-export const findDatePickerRoot = (element: HTMLElement): HTMLElement | null =>
-  closestComposed(element, DATE_PICKER_ROOT_SELECTOR);
+export const findDatePickerRoot = (element: HTMLElement): HTMLElement | null => {
+  const root = closestComposed(element, DATE_PICKER_ROOT_SELECTOR);
+  if (!root) {
+    return null;
+  }
+  // 「cascader-picker」这类类名同时命中 picker 通配，但它是级联下拉，不是日期控件。
+  return root.matches(CASCADER_ROOT_SELECTOR) ? null : root;
+};
 
 /**
  * 日期/时间选择控件。它的输入框本身是普通文本输入，

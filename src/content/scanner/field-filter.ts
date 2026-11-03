@@ -1,4 +1,9 @@
-import { CUSTOM_SELECT_INPUT_HOST_SELECTOR, DIALOG_SCOPE_SELECTOR, VISUALLY_REPLACED_SELECTOR } from './control-selectors';
+import {
+  CUSTOM_SELECT_INPUT_HOST_SELECTOR,
+  DIALOG_SCOPE_SELECTOR,
+  NATIVE_SELECT_WRAPPER_SELECTOR,
+  VISUALLY_REPLACED_SELECTOR,
+} from './control-selectors';
 import { closestComposed, composedParent, querySelectorAllDeep } from './composed-dom';
 import { resolveLabel } from './label-resolver';
 import { isRendered } from './visibility';
@@ -43,28 +48,99 @@ const descriptor = (element: FormControlElement): string =>
     .filter(Boolean)
     .join(' ');
 
+/** 只检查祖先，避免把控件自身的 hidden/aria-hidden 当成不可见（替身控件需要单独判断）。 */
+const hasHiddenAncestor = (element: FormControlElement): boolean => {
+  for (let current = composedParent(element); current; current = composedParent(current)) {
+    if (current.matches('[hidden], [aria-hidden="true"]')) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const isNativeToggle = (element: FormControlElement): element is HTMLInputElement =>
+  element instanceof HTMLInputElement && (element.type === 'checkbox' || element.type === 'radio');
+
+/**
+ * 查找原生 select 的可见替身容器。
+ * select2/chosen/choices 把替身放在原 select 的兄弟位置，bootstrap-select/tom-select 包在祖先上，
+ * 两种情况都要覆盖；相邻查找遇到另一个 select 就停止，避免匹配到别处的下拉。
+ */
+export const findNativeSelectWrapper = (select: HTMLSelectElement): HTMLElement | null => {
+  const ancestor = closestComposed<HTMLElement>(select, NATIVE_SELECT_WRAPPER_SELECTOR);
+  if (ancestor && ancestor !== select) {
+    return ancestor;
+  }
+  const isWrapper = (node: Element | null): node is HTMLElement =>
+    node instanceof HTMLElement && node !== select && node.matches(NATIVE_SELECT_WRAPPER_SELECTOR);
+  for (let sibling = select.nextElementSibling, depth = 0; sibling && depth < 3; sibling = sibling.nextElementSibling, depth += 1) {
+    if (isWrapper(sibling)) return sibling;
+    if (sibling instanceof HTMLSelectElement) break;
+  }
+  for (let sibling = select.previousElementSibling, depth = 0; sibling && depth < 3; sibling = sibling.previousElementSibling, depth += 1) {
+    if (isWrapper(sibling)) return sibling;
+    if (sibling instanceof HTMLSelectElement) break;
+  }
+  return null;
+};
+
+/** 原生控件被隐藏时，用来判断它是否仍由某个可见的替身承载。 */
+const replacementOf = (element: FormControlElement): HTMLElement | null => {
+  if (element instanceof HTMLSelectElement) {
+    return findNativeSelectWrapper(element);
+  }
+  if (isNativeToggle(element)) {
+    const container = closestComposed(element, VISUALLY_REPLACED_SELECTOR);
+    if (container && container !== element) {
+      return container;
+    }
+    // <input type="checkbox" hidden><label for="..."> 的常见写法：替身是与控件关联的 label。
+    if (element.id) {
+      const root = element.getRootNode();
+      const labelRoot = root instanceof Document || root instanceof ShadowRoot ? root : document;
+      const label = labelRoot.querySelector<HTMLLabelElement>(`label[for="${CSS.escape(element.id)}"]`);
+      if (label) return label;
+    }
+    return null;
+  }
+  if (element instanceof HTMLInputElement) {
+    const host = closestComposed(element, CUSTOM_SELECT_INPUT_HOST_SELECTOR);
+    return host && host !== element ? host : null;
+  }
+  return null;
+};
+
 const isVisible = (element: FormControlElement): boolean => {
-  if (element.hidden || closestComposed(element, '[hidden], [aria-hidden="true"]')) {
+  if (hasHiddenAncestor(element)) {
     return false;
   }
   const style = getComputedStyle(element);
-  const visuallyReplacedControl = element instanceof HTMLInputElement
-    ? element.type === 'checkbox' || element.type === 'radio'
-      ? closestComposed(element, VISUALLY_REPLACED_SELECTOR)
-      : closestComposed(element, CUSTOM_SELECT_INPUT_HOST_SELECTOR)
-    : null;
-  if (
-    style.display === 'none' ||
-    style.visibility === 'hidden' ||
-    (style.opacity === '0' && !visuallyReplacedControl)
-  ) {
+  const replacement = replacementOf(element);
+  const ariaHidden = element.getAttribute('aria-hidden') === 'true';
+  // 替身控件自身常带 aria-hidden（select2 会把可访问性交给替身），但 ARIA 复选控件背后的原生 input
+  // 也会用它避免重复朗读；后者已有 role=checkbox/radio 的替身单独采集，不能再重复收录。
+  if (ariaHidden && !(element instanceof HTMLSelectElement)) {
     return false;
+  }
+  const selfHidden =
+    element.hidden || ariaHidden || style.display === 'none' ||
+    style.visibility === 'hidden' || style.opacity === '0';
+  if (selfHidden) {
+    if (!replacement || !isRendered(replacement)) {
+      return false;
+    }
+    // 复选/单选/下拉的原生控件常被 display:none 或 opacity:0 隐藏，可见替身才是用户看到的控件；
+    // 普通文本框只在自定义下拉容器内允许 opacity:0（显示值由容器承载）。
+    if (isNativeToggle(element) || element instanceof HTMLSelectElement) {
+      return true;
+    }
+    return style.opacity === '0' && style.display !== 'none' && style.visibility !== 'hidden';
   }
   // display:none 子树内元素的计算样式仍是自身原值（display 不可继承），
   // 必须确认真的渲染出了盒子，否则隐藏页签/隐藏路由里的控件会混进扫描结果。
   // 被框架视觉替换的原生控件（自定义下拉/复选框内部）尺寸恒为 0，属正常形态。
   return isRendered(element) || Boolean(
-    visuallyReplacedControl && visuallyReplacedControl !== element && isRendered(visuallyReplacedControl) &&
+    replacement && isRendered(replacement) &&
     element.parentElement && isRendered(element.parentElement),
   );
 };

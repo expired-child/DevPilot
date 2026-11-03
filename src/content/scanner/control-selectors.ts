@@ -8,11 +8,23 @@
 
 const join = (selectors: string[]): string => selectors.join(',');
 
+/** 级联下拉的根节点。其显示值通常是「省 / 市」这样的多级路径，填充时要逐级点击。 */
+export const CASCADER_ROOT_SELECTOR = join([
+  '.ant-cascader',
+  '.el-cascader',
+  '.ivu-cascader',
+  '.n-cascader',
+  '.arco-cascader',
+  '.p-cascader',
+  '[class*="cascader" i]',
+]);
+
 /** 各框架「自定义下拉」组件的根节点（非原生 select）。 */
 export const CUSTOM_SELECT_ROOT_SELECTOR = join([
   '.ant-select',
   '.el-select',
   '.ivu-select',
+  CASCADER_ROOT_SELECTOR,
   '.MuiAutocomplete-root',
   '.MuiSelect-root',
   '.mat-mdc-select',
@@ -70,6 +82,7 @@ export const DROPDOWN_TRIGGER_SELECTOR = join([
 export const SELECTED_VALUE_SELECTOR = join([
   '.ant-select-selection-selected-value',
   '.ant-select-selection-item',
+  '.ant-select-selection-item-content',
   '.ant-select-selection__choice__content',
   '.el-select__selected-item',
   '.el-select__tags-text',
@@ -83,6 +96,7 @@ export const SELECTED_VALUE_SELECTOR = join([
   '.p-select-label',
   '.v-select__selection-text',
   '.semi-select-selection-content',
+  '.semi-select-selection-text',
   '[class*="singleValue"]',
   '[class*="multi-value__label"]',
 ]);
@@ -102,6 +116,13 @@ export const DROPDOWN_OPTION_SELECTOR = join([
   '.semi-select-dropdown .semi-select-option',
   '.t-select__list .t-select-option',
   '.q-menu .q-item[role="option"]',
+  // 级联/树形下拉的选项没有统一的 role=option，按各框架的节点类名补齐。
+  '.ant-cascader-menu-item',
+  '.el-cascader-node',
+  '.ivu-cascader-menu-item',
+  '.n-cascader-menu-item',
+  '.arco-cascader-list-item',
+  '.p-cascader-option',
 ]);
 
 /** 选项所在的弹出层容器，用于判断弹出层是否真的可见。 */
@@ -114,6 +135,9 @@ export const DROPDOWN_POPUP_SELECTOR = join([
   '.semi-select-dropdown',
   '.t-select__list',
   '.q-menu',
+  '.ant-cascader-dropdown',
+  '.el-cascader__dropdown',
+  '.n-cascader-menu',
   '[role="listbox"]',
 ]);
 
@@ -187,6 +211,30 @@ export const VISUALLY_REPLACED_SELECTOR = join([
   ARIA_TOGGLE_SELECTOR,
   '[class*="checkbox" i]',
   '[class*="radio" i]',
+  '[class*="switch" i]',
+  '[class*="toggle" i]',
+]);
+
+/**
+ * 原生 <select> 被第三方组件隐藏后，其可见替身的根节点。
+ * select2/chosen/choices 等把替身插在原 select 的兄弟位置，另一些（bootstrap-select/tom-select）包在外层，
+ * 因此查找时既要看祖先也要看相邻兄弟。原生 select 才是表单真正提交的控件，
+ * 填充时直接写它并触发 change，比模拟点击替身稳定得多。
+ */
+export const NATIVE_SELECT_WRAPPER_SELECTOR = join([
+  '.select2-container',
+  '.chosen-container',
+  '.bootstrap-select',
+  '.choices',
+  '.ts-wrapper',
+  '.tom-select',
+  '.selectize-control',
+  '.nice-select',
+  '.ng-select-container',
+  '[class*="select2" i]',
+  '[class*="chosen-" i]',
+  '[class*="tom-select" i]',
+  '[class*="selectize" i]',
 ]);
 
 /** 日期/时间选择控件根节点。 */
@@ -221,7 +269,7 @@ export const GENERIC_DROPDOWN_ARIA_SELECTOR = join([
  * 避免 unselectable、selection-focused 这类包含 select 的无关类名被误判。
  */
 const DROPDOWN_CLASS_TOKEN =
-  /^(?:[a-z0-9]+-)?(?:select|selector|dropdown|combobox|autocomplete)(?:-[a-z0-9]+)*$/i;
+  /^(?:[a-z0-9]+-)*(?:select|selector|dropdown|combobox|autocomplete|cascader|treeselect|tree-select)(?:-[a-z0-9]+)*$/i;
 
 export const matchesDropdownClassToken = (element: HTMLElement): boolean =>
   Boolean(element?.classList) && [...element.classList].some((token) => DROPDOWN_CLASS_TOKEN.test(token));

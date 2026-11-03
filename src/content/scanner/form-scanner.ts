@@ -11,13 +11,15 @@ import type { FormCandidateSummary } from '../../shared/messaging/messages';
 import {
   ARIA_RADIO_GROUP_SELECTOR,
   ARIA_TOGGLE_SELECTOR,
+  COMBOBOX_SELECTOR,
   CONTENT_EDITABLE_SELECTOR,
   CONTROL_COLLECT_SELECTOR,
+  CUSTOM_SELECT_INPUT_HOST_SELECTOR,
   DIALOG_SCOPE_SELECTOR,
   FIELD_CONTAINER_SELECTOR,
   FORM_SCOPE_SELECTOR,
 } from './control-selectors';
-import { DefaultFieldFilter, type FieldFilter, type FormControlElement } from './field-filter';
+import { DefaultFieldFilter, findNativeSelectWrapper, type FieldFilter, type FormControlElement } from './field-filter';
 import { closestComposed, composedParent, containsComposed, deepActiveElement, querySelectorAllDeep } from './composed-dom';
 import { resolveLabel } from './label-resolver';
 import { scopeIdOf } from './scope-registry';
@@ -114,10 +116,31 @@ const resolveType = (element: FormControlElement): FieldType => {
     if (element.type === 'checkbox' || element.type === 'radio') {
       return element.type;
     }
+    // month/week 没有独立的 FieldType，按日期处理，避免被全局文本替换规则改写。
+    if (element.type === 'month' || element.type === 'week') {
+      return 'date';
+    }
     const supported: FieldType[] = ['number', 'email', 'url', 'tel', 'date', 'datetime-local', 'time'];
     return supported.includes(element.type as FieldType) ? (element.type as FieldType) : 'text';
   }
   return 'text';
+};
+
+/**
+ * 自定义下拉/开关的根节点常不带 name/id/placeholder，真实属性在内部的原生控件上。
+ * 根节点优先；根节点没有时向内找第一个带该属性的控件，保证字段匹配不丢语义。
+ */
+const attributeOf = (element: FormControlElement, name: string): string | undefined => {
+  const own = element.getAttribute(name);
+  if (own) {
+    return own;
+  }
+  if (element.matches('input, textarea, select')) {
+    return undefined;
+  }
+  const inner = querySelectorAllDeep<HTMLElement>(element, 'input, textarea, select')
+    .find((candidate) => candidate.getAttribute(name));
+  return inner?.getAttribute(name) ?? undefined;
 };
 
 const fieldKey = (field: Omit<FormField, 'key'>): string => {
@@ -129,10 +152,33 @@ const fieldKey = (field: Omit<FormField, 'key'>): string => {
   return `selector:${field.selector ?? ''}`;
 };
 
+/** 原生 select 是否被第三方替身隐藏：只有这种情况才需要排除替身内部控件。 */
+const isHiddenNativeSelect = (element: FormControlElement): element is HTMLSelectElement => {
+  if (!(element instanceof HTMLSelectElement)) return false;
+  const style = getComputedStyle(element);
+  return Boolean(
+    element.hidden || element.getAttribute('aria-hidden') === 'true' ||
+    style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0',
+  );
+};
+
 export const collectFormControls = (scope: ParentNode): FormControlElement[] => {
   const candidates = querySelectorAllDeep<FormControlElement>(scope, CONTROL_COLLECT_SELECTOR);
   const collected = new Set(candidates);
+  // 被 select2/chosen/choices 等隐藏的原生 select 才是真正提交的控件；
+  // 替身里的搜索框、role=combobox 展示节点不是独立字段，统一排除，避免复制出重复/空字段。
+  const wrapperInternals = new Set<Element>();
+  for (const element of candidates) {
+    if (!isHiddenNativeSelect(element)) continue;
+    const wrapper = findNativeSelectWrapper(element);
+    if (!wrapper) continue;
+    for (const inner of querySelectorAllDeep(wrapper, CONTROL_COLLECT_SELECTOR)) {
+      if (inner !== element) wrapperInternals.add(inner);
+    }
+    if (wrapper !== element && wrapper.matches(CONTROL_COLLECT_SELECTOR)) wrapperInternals.add(wrapper);
+  }
   return candidates.filter((element) => {
+    if (wrapperInternals.has(element)) return false;
     const customRoot = findCustomSelectRoot(element);
     if (customRoot && customRoot !== element && collected.has(customRoot)) {
       return false;
@@ -141,8 +187,17 @@ export const collectFormControls = (scope: ParentNode): FormControlElement[] => 
     if (switchRoot && switchRoot !== element && scope instanceof Element && containsComposed(scope, switchRoot)) {
       return false;
     }
-    // 嵌套的 ARIA 控件只保留最外层（从父级开始找，元素自身不会被自身匹配）。
+    // 组合框容器与内部 input 同时带 role=combobox 时只保留外层容器，
+    // 与 AntD 等框架「根节点代表整个下拉」的结构保持一致，避免同一字段出现两次。
     const parent = composedParent(element);
+    if (element.matches(COMBOBOX_SELECTOR)) {
+      const outerCombobox = parent && closestComposed(parent, CUSTOM_SELECT_INPUT_HOST_SELECTOR);
+      if (outerCombobox && scope instanceof Element && containsComposed(scope, outerCombobox) &&
+        collected.has(outerCombobox)) {
+        return false;
+      }
+    }
+    // 嵌套的 ARIA 控件只保留最外层（从父级开始找，元素自身不会被自身匹配）。
     const ariaRoot = parent && closestComposed(parent, ARIA_TOGGLE_SELECTOR);
     if (ariaRoot && scope instanceof Element && containsComposed(scope, ariaRoot)) return false;
     const editableRoot = element.matches(CONTENT_EDITABLE_SELECTOR) && parent && closestComposed(parent, CONTENT_EDITABLE_SELECTOR);
@@ -337,10 +392,10 @@ export const scanForm = (
     const selector = createSelector(element);
     const partial: Omit<FormField, 'key'> = {
       label: resolveLabel(element),
-      name: element.getAttribute('name') || undefined,
-      id: element.id || undefined,
-      placeholder: element.getAttribute('placeholder') || undefined,
-      ariaLabel: element.getAttribute('aria-label') || undefined,
+      name: attributeOf(element, 'name'),
+      id: element.id || attributeOf(element, 'id'),
+      placeholder: attributeOf(element, 'placeholder'),
+      ariaLabel: attributeOf(element, 'aria-label'),
       selector,
       type: resolveType(element),
       value: adapter.getValue(element),

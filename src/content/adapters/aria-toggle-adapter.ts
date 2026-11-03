@@ -21,6 +21,8 @@ const isChecked = (element: HTMLElement): boolean => {
 const optionValue = (element: HTMLElement): string =>
   element.getAttribute('value') ??
   element.getAttribute('data-value') ??
+  element.getAttribute('aria-label') ??
+  element.getAttribute('title') ??
   element.textContent?.replace(/\s+/g, ' ').trim() ??
   '';
 
