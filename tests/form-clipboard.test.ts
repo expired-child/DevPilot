@@ -215,6 +215,22 @@ describe('copy and paste round trip', () => {
     expect(root.querySelector<HTMLInputElement>('[value="two"]')!.checked).toBe(true);
   });
 
+  it('copies and fills an AntD-style radio group whose native inputs are visually hidden', async () => {
+    // AntD 用 opacity:0 隐藏原生 input，可见样式由外层 .ant-radio 承载；
+    // input 自身的 ant-radio-input 类名不能把外层替身误判为「就是自己」。
+    document.body.innerHTML = `<form><div class="ant-form-item"><div class="ant-form-item-label"><label>模板类型</label></div>
+      <div class="ant-radio-group">
+        <label class="ant-radio-wrapper"><span class="ant-radio"><input class="ant-radio-input" style="opacity:0" type="radio" name="applyType" value="1"><span class="ant-radio-inner"></span></span><span>DashBoard</span></label>
+        <label class="ant-radio-wrapper"><span class="ant-radio ant-radio-checked"><input class="ant-radio-input" style="opacity:0" type="radio" name="applyType" value="2" checked><span class="ant-radio-inner"></span></span><span>MiniBoard</span></label>
+      </div></div></form>`;
+    const source = capture();
+    expect(source.fields.map(({ name, value }) => ({ name, value }))).toEqual([{ name: 'applyType', value: '2' }]);
+    document.querySelector<HTMLInputElement>('[value="2"]')!.checked = false;
+    const plan = buildFillPlan(source, scanForm().result.fields);
+    expect(await applyFields(plan.assignments)).toMatchObject({ success: 1, failed: 0 });
+    expect(document.querySelector<HTMLInputElement>('[value="2"]')!.checked).toBe(true);
+  });
+
   it('copies and fills a custom select whose options live in a shadow root', async () => {
     document.body.innerHTML = '<div id="kind" class="ant-select"></div>';
     const host = document.querySelector<HTMLElement>('#kind')!;

@@ -84,14 +84,25 @@ export const findNativeSelectWrapper = (select: HTMLSelectElement): HTMLElement 
   return null;
 };
 
+/**
+ * 从父级开始查找「视觉替身」容器。
+ * 不能从元素自身查起：AntD 隐藏的原生 radio/checkbox 自带 `ant-radio-input` /
+ * `ant-checkbox-input` 类名，自身就会命中 `[class*="radio" i]` 等替身选择器，
+ * 导致误判为「没有替身」而被当作不可见字段丢弃。
+ */
+const replacementAncestor = (element: FormControlElement, selector: string): HTMLElement | null => {
+  const parent = composedParent(element);
+  return parent ? closestComposed<HTMLElement>(parent, selector) : null;
+};
+
 /** 原生控件被隐藏时，用来判断它是否仍由某个可见的替身承载。 */
 const replacementOf = (element: FormControlElement): HTMLElement | null => {
   if (element instanceof HTMLSelectElement) {
     return findNativeSelectWrapper(element);
   }
   if (isNativeToggle(element)) {
-    const container = closestComposed(element, VISUALLY_REPLACED_SELECTOR);
-    if (container && container !== element) {
+    const container = replacementAncestor(element, VISUALLY_REPLACED_SELECTOR);
+    if (container) {
       return container;
     }
     // <input type="checkbox" hidden><label for="..."> 的常见写法：替身是与控件关联的 label。
