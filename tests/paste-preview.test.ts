@@ -8,7 +8,7 @@ import { buildFillPlan } from '../src/modules/form-clipboard/fill-plan-service';
 import { ClipboardService } from '../src/modules/form-clipboard/clipboard-service';
 import { defaultClipboardState, type ClipboardRepository } from '../src/modules/form-clipboard/clipboard-repository';
 import { createFingerprint } from '../src/modules/form-clipboard/fingerprint';
-import type { FormClipboardItem, FormClipboardState } from '../src/modules/form-clipboard/clipboard-types';
+import type { FormClipboardItem, FormClipboardState, FormField } from '../src/modules/form-clipboard/clipboard-types';
 import { ClipboardDetailPage } from '../src/sidepanel/pages/ClipboardDetailPage';
 import { PastePreviewPage } from '../src/sidepanel/pages/PastePreviewPage';
 
@@ -304,6 +304,61 @@ describe('detail changes', () => {
     const paste = [...container.querySelectorAll('button')].find((entry) => entry.textContent === '预览并填充此表单')!;
     await act(async () => { paste.click(); });
     expect(container.querySelector('.sticky-actions [role="alert"]')?.textContent).toContain('当前页面没有可填充的表单字段');
+    await act(async () => { root.unmount(); });
+  });
+
+  it('keeps the target form shape by default and lets the user override it', async () => {
+    const item: FormClipboardItem = {
+      id: 'shape', name: '新增指标', createdAt: 0, updatedAt: 0,
+      source: { url: 'https://console.test/metrics', host: 'console.test' },
+      fields: [
+        { key: 'name:applicableType', name: 'applicableType', label: '适用类型', type: 'select', value: 'DashBoard' },
+        { key: 'name:metricName', name: 'metricName', label: '指标名称', type: 'text', value: 'GMV' },
+      ],
+      uniqueFieldKeys: [], fingerprint: 'fp',
+    };
+    const targetFields: FormField[] = [
+      { key: 'name:applicableType', name: 'applicableType', label: '适用类型', type: 'select', value: 'MiniBoard' },
+      { key: 'name:metricName', name: 'metricName', label: '指标名称', type: 'text', value: '' },
+    ];
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => { root.render(createElement(PastePreviewPage, {
+      ...replacementProps, item, targetFields, onBack: () => {}, onRefresh: async () => {},
+      onConfirm: async () => ({ success: 2, skipped: 0, failed: 0, issues: [] }),
+    })); });
+
+    expect(container.textContent).toContain('表单形态开关');
+    expect(container.textContent).toContain('本次不覆盖');
+    expect(container.querySelector('.shape-driver input')).toMatchObject({ checked: false });
+
+    await act(async () => { container.querySelector<HTMLInputElement>('.shape-driver input')!.click(); });
+    expect(container.textContent).toContain('本次将覆盖');
+    await act(async () => { root.unmount(); });
+  });
+
+  it('lists required target fields that the source record cannot fill', async () => {
+    const item: FormClipboardItem = {
+      id: 'extra', name: '新增指标', createdAt: 0, updatedAt: 0,
+      source: { url: 'https://console.test/metrics', host: 'console.test' },
+      fields: [{ key: 'name:metricName', name: 'metricName', label: '指标名称', type: 'text', value: 'GMV' }],
+      uniqueFieldKeys: [], fingerprint: 'fp',
+    };
+    const targetFields: FormField[] = [
+      { key: 'name:metricName', name: 'metricName', label: '指标名称', type: 'text', value: '' },
+      { key: 'name:page', name: 'page', label: '所属页面', type: 'select', value: '', required: true },
+    ];
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => { root.render(createElement(PastePreviewPage, {
+      ...replacementProps, item, targetFields, onBack: () => {}, onRefresh: async () => {},
+      onConfirm: async () => ({ success: 1, skipped: 0, failed: 0, issues: [] }),
+    })); });
+
+    expect(container.textContent).toContain('目标页需手工补全');
+    expect(container.querySelector('.target-only-list')?.textContent).toContain('所属页面');
     await act(async () => { root.unmount(); });
   });
 });

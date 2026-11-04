@@ -95,8 +95,11 @@ const paste = async (tab?: chrome.tabs.Tab): Promise<void> => {
     // 用目标页现有值播种已用集合，避免唯一字段后缀与页面当前值撞车。
     const usedValues = scan.fields.flatMap((entry) => (typeof entry.value === 'string' ? [entry.value] : []));
     const plan = buildFillPlan(item, scan.fields, { autoUnique: true, usedValues, settings: state.settings });
+    // 目标表单按选择项动态渲染的字段不在初始扫描结果里：一并下发，填充阶段重扫后定位。
+    const assignments = [...plan.assignments, ...plan.deferred];
     console.debug('[DevPilot] paste:plan', {
-      assignments: plan.assignments.length,
+      assignments: assignments.length,
+      deferred: plan.deferred.length,
       skipped: plan.skipped.length,
       missingVariables: plan.missingVariables,
     });
@@ -107,7 +110,7 @@ const paste = async (tab?: chrome.tabs.Tab): Promise<void> => {
       return;
     }
 
-    if (plan.assignments.length === 0) {
+    if (assignments.length === 0) {
       const top = topSkipReason(plan.skipped);
       await toast(tabId, `没有可填充的字段（跳过 ${plan.skipped.length} 个）${top ? `：${top.reason}${top.count > 1 ? ` · ${top.count} 个字段` : ''}` : ''}`, 'error');
       return;
@@ -115,7 +118,7 @@ const paste = async (tab?: chrome.tabs.Tab): Promise<void> => {
 
     const response = await sendToTab(tabId!, {
       type: 'APPLY_FIELDS',
-      assignments: plan.assignments,
+      assignments,
       expectedTarget: {
         url: scan.source.url,
         fingerprint: createFingerprint(scan.source.host, scan.fields),

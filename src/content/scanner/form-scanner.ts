@@ -328,6 +328,17 @@ const firstTitleText = (nodes: Iterable<HTMLElement>): string | undefined => {
   return undefined;
 };
 
+/** 框架把必填标记放在 form-item 容器上（AntD 的星号类、Element 的 is-required），控件本身没有 required 属性。 */
+const REQUIRED_CONTAINER_SELECTOR = '.ant-form-item-required, .is-required, [aria-required="true"]';
+
+const isRequiredControl = (element: FormControlElement): boolean => {
+  if (element.hasAttribute('required') || element.getAttribute('aria-required') === 'true') {
+    return true;
+  }
+  const container = closestComposed(element, FIELD_CONTAINER_SELECTOR);
+  return Boolean(container?.matches(REQUIRED_CONTAINER_SELECTOR));
+};
+
 /**
  * 命名优先级：所在弹窗/抽屉/表单容器的标题（精确到具体表单，如「诉前补充」）
  * → 业务名称字段值 → 作用域内各级标题 → 页面标题。
@@ -399,7 +410,7 @@ export const scanForm = (
       selector,
       type: resolveType(element),
       value: adapter.getValue(element),
-      required: element.hasAttribute('required') || element.getAttribute('aria-required') === 'true',
+      required: isRequiredControl(element),
       disabled:
         element.matches(':disabled') || element.hasAttribute('disabled') ||
         element.getAttribute('aria-disabled') === 'true' ||

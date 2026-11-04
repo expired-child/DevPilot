@@ -1,6 +1,7 @@
 import { matchFields } from '../../content/matcher/field-matcher';
 import type {
   FieldAssignment,
+  FieldDescriptor,
   FieldDiff,
   FillIssue,
   FormClipboardItem,
@@ -25,15 +26,23 @@ export interface FillPlanOptions {
   excludedKeys?: Iterable<string>;
   /** 预览与快捷键均传入当前全局设置，缺省关闭替换。 */
   settings?: FormClipboardSettings;
+  /** 预览页显式允许覆盖的形态开关字段 key（源字段 key），缺省全部保留。 */
+  overrideDriverKeys?: Iterable<string>;
 }
 
 export interface FillPlan {
   diffs: FieldDiff[];
   assignments: FieldAssignment[];
+  /** 目标表单当前未渲染、但可能在联动后出现的字段；填充阶段重扫后按描述符定位。 */
+  deferred: FieldAssignment[];
   skipped: FillIssue[];
   missingVariables: string[];
   /** 不参与本次粘贴的字段 key（被排除的字段仍保留在 diffs 中供预览展示）。 */
   excludedKeys: string[];
+  /** 目标已有值、按默认策略保留未覆盖的形态开关字段 key（源字段 key）。 */
+  heldKeys: string[];
+  /** 目标表单上必填、但源记录里没有对应值的字段，需要手工补全。 */
+  targetOnlyRequired: FormField[];
 }
 
 const labelOf = (field: FormField): string => field.label || field.name || field.key;
@@ -43,6 +52,27 @@ const isEmptyChoice = (value: FormValue): boolean =>
   value === null || value === '' || (Array.isArray(value) && value.length === 0);
 
 const isChoiceType = (field: FormField): boolean => field.type === 'select' || field.type === 'radio';
+
+/**
+ * 会切换整套字段的选择类控件（如「适用类型」「指标类型」）。
+ * 粘贴时默认保留目标已有值：源值常常属于另一种表单形态，覆盖会把目标切成另一套动态字段。
+ */
+const DRIVER_HINT = /(类型|类别|\btype\b|\bmode\b)/i;
+
+export const isFormShapeDriver = (field: FormField): boolean =>
+  isChoiceType(field) &&
+  DRIVER_HINT.test([field.label, field.name, field.id, field.ariaLabel].filter(Boolean).join(' '));
+
+/** 源字段的匹配线索：目标重渲染换了 key 后，填充阶段仍能按语义找回。 */
+const descriptorOf = (field: FormField): FieldDescriptor => ({
+  type: field.type,
+  label: field.label,
+  name: field.name,
+  id: field.id,
+  placeholder: field.placeholder,
+  ariaLabel: field.ariaLabel,
+  selector: field.selector,
+});
 
 /** 生成与既有值不重复的唯一值：order-route → order-route-2 → order-route-3。 */
 const nextUniqueValue = (base: string, used: Set<string>): string => {
@@ -129,15 +159,35 @@ export const buildFillPlan = (
   }
 
   const diffs = createDiff(matchFields(item.fields, targetFields), values, item.uniqueFieldKeys ?? []);
+
+  // 形态开关：目标已有不同值时默认保留，避免粘贴后目标表单被切成另一套字段、后续值全部错位。
+  const forced = new Set(options.overrideDriverKeys ?? []);
+  const held = new Set<string>();
+  for (const diff of diffs) {
+    if (!diff.target || excluded.has(diff.source.key) || forced.has(diff.source.key)) continue;
+    if (!isFormShapeDriver(diff.source) || isEmptyChoice(diff.target.value)) continue;
+    if (JSON.stringify(diff.target.value) === JSON.stringify(diff.nextValue)) continue;
+    diff.status = 'HELD';
+    held.add(diff.source.key);
+  }
+
+  /** 目标表单按选择项动态渲染的字段：先记为延迟填充，由填充阶段重扫后定位。 */
+  const deferred: FieldAssignment[] = [];
   const assignments = diffs.flatMap<FieldAssignment>((diff) => {
-    if (excluded.has(diff.source.key)) {
-      return [];
-    }
-    if (!diff.target) {
-      skipped.push({ label: labelOf(diff.source), reason: '未找到高置信度匹配字段' });
+    if (excluded.has(diff.source.key) || held.has(diff.source.key)) {
       return [];
     }
     if (!(diff.source.key in values)) {
+      return [];
+    }
+    if (!diff.target) {
+      deferred.push({
+        targetKey: '',
+        sourceKey: diff.source.key,
+        label: labelOf(diff.source),
+        value: diff.nextValue,
+        descriptor: descriptorOf(diff.source),
+      });
       return [];
     }
     return [
@@ -146,9 +196,24 @@ export const buildFillPlan = (
         targetSelector: diff.target.selector,
         label: labelOf(diff.source),
         value: diff.nextValue,
+        descriptor: descriptorOf(diff.source),
       },
     ];
   });
 
-  return { diffs, assignments, skipped, missingVariables: [...missing], excludedKeys: [...excluded] };
+  const matchedTargetKeys = new Set(diffs.flatMap((diff) => (diff.target ? [diff.target.key] : [])));
+  const targetOnlyRequired = targetFields.filter(
+    (field) => field.required && !matchedTargetKeys.has(field.key),
+  );
+
+  return {
+    diffs,
+    assignments,
+    deferred,
+    skipped,
+    missingVariables: [...missing],
+    excludedKeys: [...excluded],
+    heldKeys: [...held],
+    targetOnlyRequired,
+  };
 };

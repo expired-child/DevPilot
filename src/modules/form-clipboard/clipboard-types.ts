@@ -39,6 +39,15 @@ export interface FormField {
   metadata?: Record<string, string>;
 }
 
+/**
+ * 源字段的匹配线索：目标字段因联动重渲染换了 key 时，仍能按语义找回同一字段。
+ * 只保留参与打分的属性，避免消息体带上值等无关数据。
+ */
+export type FieldDescriptor = Pick<
+  FormField,
+  'type' | 'label' | 'name' | 'id' | 'placeholder' | 'ariaLabel' | 'selector'
+>;
+
 export interface FormSource {
   url: string;
   title?: string;
@@ -115,7 +124,7 @@ export interface FieldMatch {
   reasons: string[];
 }
 
-export type DiffStatus = 'UNCHANGED' | 'CHANGED' | 'UNIQUE' | 'UNMATCHED';
+export type DiffStatus = 'UNCHANGED' | 'CHANGED' | 'UNIQUE' | 'UNMATCHED' | 'HELD';
 
 export interface FieldDiff {
   source: FormField;
@@ -127,10 +136,15 @@ export interface FieldDiff {
 }
 
 export interface FieldAssignment {
+  /** 目标字段 key；延迟填充（sourceKey 有值）时为空串，只按描述符定位。 */
   targetKey: string;
   targetSelector?: string;
   label: string;
   value: FormValue;
+  /** 目标字段因联动重渲染换了 key 时，用它重新定位；旧消息缺省时回退到 targetKey。 */
+  descriptor?: FieldDescriptor;
+  /** 延迟填充的源字段 key；目标表单当前还没渲染该字段，填充阶段重扫后再定位。 */
+  sourceKey?: string;
 }
 
 export interface FillIssue {

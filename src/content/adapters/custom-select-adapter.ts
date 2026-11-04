@@ -15,7 +15,7 @@ import {
   matchesDropdownClassToken,
   SELECTED_VALUE_SELECTOR,
 } from '../scanner/control-selectors';
-import { closestComposed, composedParent, querySelectorAllDeep } from '../scanner/composed-dom';
+import { closestComposed, composedParent, containsComposed, querySelectorAllDeep } from '../scanner/composed-dom';
 import type { FormControlElement } from '../scanner/field-filter';
 import { dispatchValueEvents, setNativeValue, type FieldAdapter } from './field-adapter';
 import { findDatePickerRoot } from './date-picker-adapter';
@@ -258,9 +258,22 @@ export class CustomSelectAdapter implements FieldAdapter {
 
     // 基线：展开前页面已可见的「选项样」节点（如导航菜单项、其他常驻浮层）
     // 不参与匹配，只有本次展开后新出现的选项才可点，防止误点页面既有节点。
-    const baseline = new Set(visibleGenericOptions());
+    // 上一个下拉选中后浮层做收起动画期间选项仍算可见（实测约 250ms），
+    // 若把它当成自己的选项，ensureOpen 会误判「已展开」而跳过点击。
+    // aria-expanded="false" 能确认本下拉处于收起态时，把框架选项也计入基线。
+    // 按标准 ARIA 状态判断，不绑定具体框架；没有该属性的自研组件维持旧行为。
+    const expandedHost = closestComposed(element, '[aria-expanded]');
+    const collapsed = Boolean(
+      expandedHost &&
+      containsComposed(root, expandedHost) &&
+      expandedHost.getAttribute('aria-expanded') === 'false',
+    );
+    const baseline = new Set([
+      ...(collapsed ? visibleOptions() : []),
+      ...visibleGenericOptions(),
+    ]);
     const optionPool = (): HTMLElement[] => [
-      ...visibleOptions(),
+      ...visibleOptions().filter((candidate) => !baseline.has(candidate)),
       ...visibleGenericOptions().filter((candidate) => !baseline.has(candidate)),
     ];
     const currentValues = (): string[] => {
@@ -271,6 +284,8 @@ export class CustomSelectAdapter implements FieldAdapter {
     };
 
     let opened = false;
+    /** 是否真的点击展开过；只凭「池里有选项」推断的展开不可靠，找不到目标时要补点一次。 */
+    let clickedToOpen = false;
     const ensureOpen = async (): Promise<boolean> => {
       if (optionPool().length > 0) {
         opened = true;
@@ -278,6 +293,7 @@ export class CustomSelectAdapter implements FieldAdapter {
       }
       openSelect(root, element);
       opened = true;
+      clickedToOpen = true;
       for (let attempt = 0; attempt < 10; attempt += 1) {
         await wait(50);
         if (optionPool().length > 0) return true;
@@ -302,8 +318,9 @@ export class CustomSelectAdapter implements FieldAdapter {
     const waitForOption = async (
       target: string,
       clicked: Set<HTMLElement>,
+      attempts = 20,
     ): Promise<HTMLElement | undefined> => {
-      for (let attempt = 0; attempt < 20; attempt += 1) {
+      for (let index = 0; index < attempts; index += 1) {
         await wait(50);
         const option = findMatchingOption(optionPool(), target, clicked);
         if (option) return option;
@@ -386,6 +403,13 @@ export class CustomSelectAdapter implements FieldAdapter {
       }
       await ensureOpen();
       let option = await waitForOption(target, clicked);
+      if (!option && !clickedToOpen) {
+        // 池里的选项没准属于上一个尚未关完的下拉：补一次真实展开再找，
+        // 避免因为「看起来已展开」而一直读别人的选项。
+        openSelect(root, element);
+        clickedToOpen = true;
+        option = await waitForOption(target, clicked);
+      }
       if (!option) {
         const input = searchInputUsed ?? searchInput();
         if (input) {
@@ -393,7 +417,9 @@ export class CustomSelectAdapter implements FieldAdapter {
           searchBefore ??= input.value;
           typeSearch(input, target);
           typedTarget = target;
-          option = await waitForOption(target, clicked);
+          // 联动下拉的选项常由父级选择后请求接口再回填（实测 1~3 秒），
+          // 输入过滤后多等一会儿，避免把还没返回的选项误判为不存在。
+          option = await waitForOption(target, clicked, 60);
         }
       }
       if (!option) {

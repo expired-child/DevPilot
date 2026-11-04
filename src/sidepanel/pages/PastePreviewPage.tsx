@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import { buildFillPlan } from '../../modules/form-clipboard/fill-plan-service';
+import { buildFillPlan, isFormShapeDriver } from '../../modules/form-clipboard/fill-plan-service';
 import { collectVariables } from '../../modules/form-clipboard/template-service';
 import type {
   FieldAssignment,
@@ -27,11 +27,13 @@ interface Props {
   onConfirm(assignments: FieldAssignment[], skipped: FillIssue[]): Promise<FillReport>;
 }
 
-const labels = { UNCHANGED: '值相同', CHANGED: '值将改变', UNIQUE: '唯一字段', UNMATCHED: '未匹配' } as const;
+const labels = { UNCHANGED: '值相同', CHANGED: '值将改变', UNIQUE: '唯一字段', UNMATCHED: '未匹配', HELD: '保留目标值' } as const;
 const valueText = (value: FormValue): string => Array.isArray(value) ? value.join(', ') : String(value ?? '');
 
 export function PastePreviewPage({ item, settings, replacementPending, onReplacementToggle, targetFields, targetTitle, onBack, onRefresh, onConfirm }: Props) {
   const [excluded, setExcluded] = useState<Set<string>>(() => new Set(item.excludedFieldKeys ?? []));
+  /** 已被用户显式要求覆盖目标值的形态开关字段（源字段 key）。 */
+  const [forcedDrivers, setForcedDrivers] = useState<Set<string>>(() => new Set());
   const [viewAll, setViewAll] = useState(false);
   const [report, setReport] = useState<FillReport | null>(null);
   const [filling, setFilling] = useState(false);
@@ -56,10 +58,13 @@ export function PastePreviewPage({ item, settings, replacementPending, onReplace
   const [uniqueOverrides, setUniqueOverrides] = useState<Record<string, string>>({});
 
   const plan = useMemo(
-    () => buildFillPlan(item, targetFields, { variables, overrides: uniqueOverrides, excludedKeys: excluded, settings }),
-    [item, targetFields, variables, uniqueOverrides, excluded, settings],
+    () => buildFillPlan(item, targetFields, {
+      variables, overrides: uniqueOverrides, excludedKeys: excluded, settings, overrideDriverKeys: forcedDrivers,
+    }),
+    [item, targetFields, variables, uniqueOverrides, excluded, settings, forcedDrivers],
   );
   const diffs = plan.diffs;
+  const deferredKeys = new Set(plan.deferred.flatMap((assignment) => assignment.sourceKey ? [assignment.sourceKey] : []));
   const assignmentKeys = new Set(plan.assignments.map((assignment) => assignment.targetKey));
   const uniqueValidation = validateUniqueFields(
     diffs
@@ -75,7 +80,13 @@ export function PastePreviewPage({ item, settings, replacementPending, onReplace
   const visible = viewAll ? diffs : diffs.filter((diff) =>
     !diff.target || !assignmentKeys.has(diff.target.key) || diff.status !== 'UNCHANGED',
   );
-  const pasteCount = plan.assignments.length;
+  // 延迟字段也要计入：它们会在父级选好后由填充阶段重扫并尝试填写。
+  const pasteCount = plan.assignments.length + plan.deferred.length;
+  /** 目标已有不同值的形态开关字段：无论是否已解除保护都保留在列表里，便于反复切换。 */
+  const driverDiffs = diffs.filter((diff) =>
+    Boolean(diff.target) && !excluded.has(diff.source.key) && isFormShapeDriver(diff.source) &&
+    valueText(diff.target!.value) !== valueText(diff.nextValue));
+  const heldKeys = new Set(plan.heldKeys);
   const changedCount = diffs.filter((diff) =>
     diff.target && assignmentKeys.has(diff.target.key) && JSON.stringify(diff.target.value) !== JSON.stringify(diff.nextValue),
   ).length;
@@ -91,6 +102,17 @@ export function PastePreviewPage({ item, settings, replacementPending, onReplace
     setExcluded((current) => {
       const next = new Set(current);
       if (included) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+  };
+  const toggleDriver = (key: string, force: boolean): void => {
+    setForcedDrivers((current) => {
+      const next = new Set(current);
+      if (force) {
         next.delete(key);
       } else {
         next.add(key);
@@ -123,7 +145,7 @@ export function PastePreviewPage({ item, settings, replacementPending, onReplace
     setFilling(true);
     setSubmissionError(null);
     try {
-      setReport(await onConfirm(plan.assignments, plan.skipped));
+      setReport(await onConfirm([...plan.assignments, ...plan.deferred], plan.skipped));
     } catch (error) {
       setSubmissionError(error instanceof Error ? error.message : '填充失败，请重新预览。');
     } finally {
@@ -134,8 +156,10 @@ export function PastePreviewPage({ item, settings, replacementPending, onReplace
 
   const renderRow = (diff: FieldDiff) => {
     const rowExcluded = excluded.has(diff.source.key);
-    const willFill = Boolean(diff.target && assignmentKeys.has(diff.target.key));
-    const statusText = !diff.target ? labels.UNMATCHED : rowExcluded ? '已排除' : !willFill ? '已跳过' : labels[diff.status];
+    // 目标表单当前没渲染的字段若仍在延迟填充列表里，会在填充阶段随联动出现后再试一次。
+    const deferred = Boolean(!diff.target && deferredKeys.has(diff.source.key));
+    const willFill = Boolean(diff.target && assignmentKeys.has(diff.target.key)) || deferred;
+    const statusText = deferred ? '待联动填充' : !diff.target ? labels.UNMATCHED : rowExcluded ? '已排除' : diff.status === 'HELD' ? labels.HELD : !willFill ? '已跳过' : labels[diff.status];
     return (
       <article className={`diff-row ${rowExcluded ? 'excluded' : diff.status.toLowerCase()}`} key={diff.source.key}>
         <div className="diff-head">
@@ -150,7 +174,7 @@ export function PastePreviewPage({ item, settings, replacementPending, onReplace
           <span aria-hidden="true">→</span>
           <div><span>{willFill ? '将填入' : '源记录'}</span><strong>{valueText(diff.nextValue) || '（空）'}</strong></div>
         </div>
-        {!diff.target && <small>未找到高置信度匹配，已跳过</small>}
+        {!diff.target && <small>{deferred ? '目标表单当前未渲染该字段，填充时会重扫并按联动结果尝试填写' : '未找到高置信度匹配，已跳过'}</small>}
       </article>
     );
   };
@@ -170,6 +194,25 @@ export function PastePreviewPage({ item, settings, replacementPending, onReplace
         const isExcluded = excluded.has(key);
         return <label className={`field-label${isExcluded ? ' excluded' : ''}`} key={key}>{field.label || field.name || key}<input value={uniqueOverrides[key] ?? valueText(diffs.find((diff) => diff.source.key === key)?.nextValue ?? field.value)} disabled={isExcluded || Boolean(report) || filling || refreshing} onChange={(event) => setUniqueOverrides((current) => ({ ...current, [key]: event.target.value }))} /><small>原值：{field.value}{isExcluded ? ' · 已排除，不参与粘贴' : ''}</small></label>;
       })}{uniqueValidation.errors.map((error) => <div className="inline-error" key={error}>{error}</div>)}</section>}
+
+      {driverDiffs.length > 0 && <section className="input-section">
+        <h2>表单形态开关</h2>
+        <p className="replacement-help">这些字段决定目标表单显示哪些字段。已保留目标当前值，避免粘贴后表单换成另一套字段；确需切换时再勾选覆盖。</p>
+        {driverDiffs.map((diff) => {
+          const key = diff.source.key;
+          const forced = forcedDrivers.has(key);
+          return <div className="shape-driver" key={key}>
+            <span>{diff.source.label || diff.source.name || key}<small>目标：{valueText(diff.target!.value)} · 源：{valueText(diff.nextValue)}{heldKeys.has(key) ? ' · 本次不覆盖' : ' · 本次将覆盖'}</small></span>
+            <label className="include-toggle"><input type="checkbox" checked={forced} disabled={Boolean(report) || filling || refreshing} onChange={() => toggleDriver(key, forced)} />覆盖</label>
+          </div>;
+        })}
+      </section>}
+
+      {plan.targetOnlyRequired.length > 0 && <section className="input-section">
+        <h2>目标页需手工补全</h2>
+        <p className="replacement-help">以下必填字段在目标表单上存在、但源记录里没有对应值，粘贴后请手动填写。</p>
+        <ul className="target-only-list">{plan.targetOnlyRequired.map((field) => <li key={field.key}>{field.label || field.name || field.key}</li>)}</ul>
+      </section>}
 
       <section className="diff-section">
         <div className="stats">
