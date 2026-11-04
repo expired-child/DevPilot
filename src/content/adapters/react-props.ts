@@ -45,6 +45,44 @@ export const readReactValue = (element: HTMLElement): string | undefined => {
   return stringify(props.defaultValue);
 };
 
+interface ReactFiberNode {
+  memoizedProps?: Record<string, unknown>;
+  return?: ReactFiberNode | null;
+}
+
+const reactFiber = (element: HTMLElement): ReactFiberNode | undefined => {
+  const key = Object.keys(element).find((name) => REACT_FIBER_KEY.test(name));
+  return key ? (element[key as keyof HTMLElement] as unknown as ReactFiberNode) : undefined;
+};
+
+/** 受控组件 props 里的原始值：兼容基本类型和 labelInValue 的 { value, label }。 */
+const rawPropsValue = (props?: Record<string, unknown>): string | undefined => {
+  const raw = props?.value ?? props?.defaultValue;
+  const inner = raw && typeof raw === 'object' && !Array.isArray(raw)
+    ? (raw as Record<string, unknown>).value ?? (raw as Record<string, unknown>).code
+    : raw;
+  if (typeof inner === 'string') {
+    return inner.trim() || undefined;
+  }
+  return typeof inner === 'number' ? String(inner) : undefined;
+};
+
+/**
+ * 读取下拉选中项的底层真实值（如工号、字典编码）。
+ * 远程搜索接口通常只认真实值，而 DOM 上往往只有显示文本，因此沿 React fiber 祖先链
+ * 向上找最近的 value；搜索框自身的空值会被跳过，labelInValue 形态取对象里的 value。
+ */
+export const readReactSelectedValue = (element: HTMLElement, maxDepth = 6): string | undefined => {
+  let fiber = reactFiber(element);
+  for (let depth = 0; fiber && depth < maxDepth; depth += 1, fiber = fiber.return ?? undefined) {
+    const value = rawPropsValue(fiber.memoizedProps);
+    if (value !== undefined) {
+      return value;
+    }
+  }
+  return undefined;
+};
+
 /** 读取 React 内部的选中状态（无原生 checked 的自研复选/单选）。 */
 export const readReactChecked = (element: HTMLElement): boolean | undefined => {
   const props = reactProps(element);

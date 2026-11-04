@@ -1,4 +1,5 @@
 import { getFieldAdapter } from './adapters';
+import type { FieldAdapter } from './adapters/field-adapter';
 import { relocateField } from './matcher/field-matcher';
 import { scanForm, type ScannedField } from './scanner/form-scanner';
 import { scopeElement } from './scanner/scope-registry';
@@ -27,6 +28,13 @@ const sameValue = (left: FormValue, right: FormValue): boolean => {
   }
   return JSON.stringify(left) === JSON.stringify(right);
 };
+
+/**
+ * 回读校验：适配器可声明自己的等价规则（如下拉按编码匹配到改名后的显示文本），
+ * 未声明时沿用字段值的严格比较。
+ */
+const valueMatches = (adapter: FieldAdapter, current: FormValue, expected: FormValue): boolean =>
+  adapter.matchesValue ? adapter.matchesValue(current, expected) : sameValue(current, expected);
 
 /** 描述控件特征，便于在填充报告里说明「暂不支持」的到底是哪种控件。 */
 const describeControl = (element: HTMLElement): string => {
@@ -233,11 +241,11 @@ export const applyFields = async (assignments: FieldAssignment[], expectedTarget
       }
 
       try {
-        await adapter.setValue(target.element, assignment.value);
+        await adapter.setValue(target.element, assignment.value, { searchKey: assignment.searchKey });
         await wait(SETTLE_MS);
         const current = await findTarget(assignment, scope, budget, usedKeys);
         const currentAdapter = current && getFieldAdapter(current.element);
-        if (!current || !currentAdapter || !sameValue(currentAdapter.getValue(current.element), assignment.value)) {
+        if (!current || !currentAdapter || !valueMatches(currentAdapter, currentAdapter.getValue(current.element), assignment.value)) {
           throw new Error('控件未接受新值');
         }
         usedKeys.add(target.field.key);
@@ -262,7 +270,7 @@ export const applyFields = async (assignments: FieldAssignment[], expectedTarget
       const current = controlsAfter.find((control) => control.field.key === key) ??
         locateControl({ ...entry, targetKey: key }, controlsAfter, usedKeys);
       const adapter = current && getFieldAdapter(current.element);
-      if (!current || !adapter || !sameValue(adapter.getValue(current.element), entry.value)) {
+      if (!current || !adapter || !valueMatches(adapter, adapter.getValue(current.element), entry.value)) {
         applied.delete(entry);
         if (!retry.includes(entry)) {
           retry.push(entry);
@@ -293,7 +301,7 @@ export const applyFields = async (assignments: FieldAssignment[], expectedTarget
       // 延迟字段下发时 targetKey 为空，回读必须用填充时定位到的 key 继续找。
       locateControl({ ...assignment, targetKey }, finalControls, usedKeys);
     const adapter = current && getFieldAdapter(current.element);
-    if (!current || !adapter || !sameValue(adapter.getValue(current.element), assignment.value)) {
+    if (!current || !adapter || !valueMatches(adapter, adapter.getValue(current.element), assignment.value)) {
       report.failed += 1;
       report.issues.push({ label: assignment.label, reason: '字段值被页面联动重置或字段已移除' });
     } else {

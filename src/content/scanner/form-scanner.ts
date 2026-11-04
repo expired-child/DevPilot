@@ -1,5 +1,5 @@
 import { getFieldAdapter } from '../adapters';
-import { findCustomSelectRoot } from '../adapters/custom-select-adapter';
+import { findCustomSelectRoot, readSelectRawValue } from '../adapters/custom-select-adapter';
 import { findDatePickerRoot } from '../adapters/date-picker-adapter';
 import { findSwitchRoot } from '../adapters/switch-adapter';
 import type {
@@ -401,6 +401,11 @@ export const scanForm = (
       return [];
     }
     const selector = createSelector(element);
+    const type = resolveType(element);
+    // 自定义下拉的显示文本往往不等于提交值；采集底层真实值供远程搜索回填时优先检索。
+    const selectValue = type === 'select' && !(element instanceof HTMLSelectElement)
+      ? readSelectRawValue(element)
+      : undefined;
     const partial: Omit<FormField, 'key'> = {
       label: resolveLabel(element),
       name: attributeOf(element, 'name'),
@@ -408,7 +413,7 @@ export const scanForm = (
       placeholder: attributeOf(element, 'placeholder'),
       ariaLabel: attributeOf(element, 'aria-label'),
       selector,
-      type: resolveType(element),
+      type,
       value: adapter.getValue(element),
       required: isRequiredControl(element),
       disabled:
@@ -419,6 +424,7 @@ export const scanForm = (
       metadata: {
         tag: element.tagName.toLowerCase(),
         role: element.getAttribute('role') ?? '',
+        ...(selectValue ? { selectValue } : {}),
       },
     };
     return [{ field: { ...partial, key: fieldKey(partial) }, element }];

@@ -63,6 +63,9 @@ export const isFormShapeDriver = (field: FormField): boolean =>
   isChoiceType(field) &&
   DRIVER_HINT.test([field.label, field.name, field.id, field.ariaLabel].filter(Boolean).join(' '));
 
+/** 下拉采集到的底层真实值；空值不携带，保持旧消息结构不变。 */
+const searchKeyOf = (field: FormField): string | undefined => field.metadata?.selectValue || undefined;
+
 /** 源字段的匹配线索：目标重渲染换了 key 后，填充阶段仍能按语义找回。 */
 const descriptorOf = (field: FormField): FieldDescriptor => ({
   type: field.type,
@@ -186,6 +189,7 @@ export const buildFillPlan = (
         sourceKey: diff.source.key,
         label: labelOf(diff.source),
         value: diff.nextValue,
+        searchKey: searchKeyOf(diff.source),
         descriptor: descriptorOf(diff.source),
       });
       return [];
@@ -196,6 +200,7 @@ export const buildFillPlan = (
         targetSelector: diff.target.selector,
         label: labelOf(diff.source),
         value: diff.nextValue,
+        searchKey: searchKeyOf(diff.source),
         descriptor: descriptorOf(diff.source),
       },
     ];

@@ -141,6 +141,8 @@ export interface FieldAssignment {
   targetSelector?: string;
   label: string;
   value: FormValue;
+  /** 源下拉的底层真实值；远程搜索时优先用它作为检索词。 */
+  searchKey?: string;
   /** 目标字段因联动重渲染换了 key 时，用它重新定位；旧消息缺省时回退到 targetKey。 */
   descriptor?: FieldDescriptor;
   /** 延迟填充的源字段 key；目标表单当前还没渲染该字段，填充阶段重扫后再定位。 */

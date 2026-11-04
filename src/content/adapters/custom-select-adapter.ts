@@ -17,9 +17,9 @@ import {
 } from '../scanner/control-selectors';
 import { closestComposed, composedParent, containsComposed, querySelectorAllDeep } from '../scanner/composed-dom';
 import type { FormControlElement } from '../scanner/field-filter';
-import { dispatchValueEvents, setNativeValue, type FieldAdapter } from './field-adapter';
+import { dispatchValueEvents, setNativeValue, type FieldAdapter, type FillContext } from './field-adapter';
 import { findDatePickerRoot } from './date-picker-adapter';
-import { readReactValue } from './react-props';
+import { readReactSelectedValue, readReactValue } from './react-props';
 
 const text = (value?: string | null): string => value?.replace(/\s+/g, ' ').trim() ?? '';
 const wait = (milliseconds: number): Promise<void> =>
@@ -132,6 +132,86 @@ export const readSelectedText = (root: ParentNode): FormValue => {
 /** 选项行首的装饰字符（勾选图标等），前缀兜底匹配前剥掉。 */
 const LEADING_DECORATION = /^[\s✓✔√●·]+/;
 
+/** 显示值里的常见分隔符：工号-姓名、部门/人员、(编码) 等形态。 */
+const VALUE_SEPARATOR = /[-－—–_/／|,，、;；:：()（）[\]\s]+/;
+
+/** 统一全角符号并去掉空白，避免同一记录因排版差异被判为不同。 */
+const normalizeSelectText = (value: string): string =>
+  text(value)
+    .replace(LEADING_DECORATION, '')
+    .replace(/[－—–]/g, '-')
+    .replace(/／/g, '/')
+    .replace(/[（）]/g, '(')
+    .replace(/[()[\]]/g, '')
+    .replace(/\s+/g, '');
+
+/** 拆出「编码-显示名」两段：编码须含数字，纯数字后缀（如 A-01/A-02）不算人名。 */
+const codeLabelOf = (value: string): { code: string; label: string } | undefined => {
+  const matched = normalizeSelectText(value).match(/^([^-_/|,，、;；:：]+)[-_/|,，、;；:：]+(.+)$/);
+  if (!matched || !/\d/.test(matched[1])) {
+    return undefined;
+  }
+  return { code: matched[1], label: matched[2] };
+};
+
+/**
+ * 远程搜索的检索词：接口通常只按工号/编码或姓名匹配，不接受「工号-姓名」整串。
+ * 优先用采集到的真实值，其次按分隔符拆段，最后才用整串，避免沿用必然搜不到的写法。
+ */
+export const searchKeywords = (value: string, rawValue?: string): string[] => {
+  const full = text(value);
+  const candidates = [
+    text(rawValue ?? ''),
+    ...full.split(VALUE_SEPARATOR),
+    full,
+  ]
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length >= 2);
+  // 最多尝试 4 个词，避免自研格式拆出大量碎片导致每个字段等待过久。
+  return [...new Set(candidates)].slice(0, 4);
+};
+
+/**
+ * 下拉选项与记录值的等价判断。
+ * 优先整串相等；带编码的分段值（工号-姓名）按编码段判断——
+ * 显示名可能随环境或人员信息变化，含数字的编码才是稳定的业务唯一键。
+ */
+export const sameSelectValue = (left: string, right: string): boolean => {
+  const normalizedLeft = normalizeSelectText(left);
+  const normalizedRight = normalizeSelectText(right);
+  if (!normalizedLeft || !normalizedRight) {
+    return false;
+  }
+  if (normalizedLeft === normalizedRight) {
+    return true;
+  }
+  const leftCode = codeLabelOf(left);
+  const rightCode = codeLabelOf(right);
+  if (!leftCode || !rightCode || leftCode.code !== rightCode.code) {
+    return false;
+  }
+  // 编码一致但显示名不同：只有显示名是文字（人名/名称）时才视为同一记录；
+  // 纯数字后缀更像序号（A-01/A-02、12F-01），不能因「编码」相同就乱选。
+  return !/^\d+$/.test(leftCode.label) || !/^\d+$/.test(rightCode.label);
+};
+
+/**
+ * 采集下拉选中项的底层真实值：隐藏 input 最可靠；其次选中节点上的 data-value/data-id；
+ * 最后回退 React fiber 里的受控值。采集不到时返回 undefined，由检索词拆分兜底。
+ */
+export const readSelectRawValue = (root: HTMLElement): string | undefined => {
+  const hidden = querySelectorAllDeep<HTMLInputElement>(root, 'input[type="hidden"]')
+    .map((input) => text(input.value))
+    .find(Boolean);
+  if (hidden) {
+    return hidden;
+  }
+  const selectedData = querySelectorAllDeep(root, SELECTED_VALUE_SELECTOR)
+    .map((node) => text(node.getAttribute('data-value') ?? node.getAttribute('data-id') ?? ''))
+    .find(Boolean);
+  return selectedData ?? readReactSelectedValue(root);
+};
+
 /** 选项上可能承载真实值/可访问名称的属性：显示文本与提交值不一致时靠它们兜底。 */
 const optionAttributes = (option: HTMLElement): string[] =>
   [
@@ -160,6 +240,13 @@ export const findMatchingOption = (
   const byAttribute = pool.find((option) => optionAttributes(option).includes(target));
   if (byAttribute) {
     return byAttribute;
+  }
+  // 编码一致即视为同一记录：人员改名或环境不同导致显示名有差异时仍能选中。
+  const byCode = pool.find((option) =>
+    sameSelectValue(target, text(option.textContent)) ||
+    optionAttributes(option).some((attribute) => sameSelectValue(target, attribute)));
+  if (byCode) {
+    return byCode;
   }
   // 自研选项节点常混入勾选图标等多余文本：剥掉行首装饰后按前缀兜底。
   // 只做 startsWith 不做 includes，避免「还车」误中「未还车」这类近似项。
@@ -238,7 +325,24 @@ export class CustomSelectAdapter implements FieldAdapter {
     return value;
   }
 
-  async setValue(element: FormControlElement, value: FormValue): Promise<void> {
+  matchesValue(current: FormValue, expected: FormValue): boolean {
+    const currentValues = (Array.isArray(current) ? current : [current]).map((entry) => text(String(entry ?? '')));
+    const remaining = (Array.isArray(expected) ? expected : [expected]).map((entry) => text(String(entry ?? '')));
+    if (currentValues.length !== remaining.length) {
+      return false;
+    }
+    // 多选回读顺序可能与赋值顺序不同，逐个消耗等价项即可。
+    return currentValues.every((entry) => {
+      const index = remaining.findIndex((target) => sameSelectValue(entry, target));
+      if (index < 0) {
+        return false;
+      }
+      remaining.splice(index, 1);
+      return true;
+    });
+  }
+
+  async setValue(element: FormControlElement, value: FormValue, context?: FillContext): Promise<void> {
     const root = findCustomSelectRoot(element);
     if (!root) {
       throw new Error('未找到下拉框容器');
@@ -282,6 +386,9 @@ export class CustomSelectAdapter implements FieldAdapter {
         .map((entry) => text(String(entry ?? '')))
         .filter(Boolean);
     };
+    /** 编码一致即算已选中：人员改名后显示文本会变，重复粘贴时不能因此重复点击。 */
+    const alreadySelected = (target: string): boolean =>
+      currentValues().some((entry) => sameSelectValue(entry, target));
 
     let opened = false;
     /** 是否真的点击展开过；只凭「池里有选项」推断的展开不可靠，找不到目标时要补点一次。 */
@@ -398,7 +505,7 @@ export class CustomSelectAdapter implements FieldAdapter {
 
     for (const target of targets) {
       // 已选中的项不重复点击，保证重复粘贴同一份数据时幂等。
-      if (currentValues().includes(target)) {
+      if (alreadySelected(target)) {
         continue;
       }
       await ensureOpen();
@@ -415,11 +522,16 @@ export class CustomSelectAdapter implements FieldAdapter {
         if (input) {
           searchInputUsed = input;
           searchBefore ??= input.value;
-          typeSearch(input, target);
           typedTarget = target;
-          // 联动下拉的选项常由父级选择后请求接口再回填（实测 1~3 秒），
-          // 输入过滤后多等一会儿，避免把还没返回的选项误判为不存在。
-          option = await waitForOption(target, clicked, 60);
+          // 远程搜索接口通常只按编码/姓名匹配，整串「工号-姓名」往往返回空结果。
+          // 依次用真实值、分段关键字、整串检索；命中后仍按完整目标（或编码）校验选项。
+          const keywords = searchKeywords(target, context?.searchKey);
+          for (let index = 0; index < keywords.length; index += 1) {
+            typeSearch(input, keywords[index]);
+            // 首个词覆盖联动下拉 1~3 秒的回填；后续词说明接口并非慢响应，缩短等待。
+            option = await waitForOption(target, clicked, index === 0 ? 60 : 30);
+            if (option) break;
+          }
         }
       }
       if (!option) {
@@ -436,7 +548,7 @@ export class CustomSelectAdapter implements FieldAdapter {
         clicked.add(option);
         clickOption(option);
         await wait(100);
-        if (currentValues().includes(target)) {
+        if (alreadySelected(target)) {
           option = undefined;
           break;
         }
