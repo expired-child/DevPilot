@@ -171,7 +171,7 @@ describe('bookmark panel live update', () => {
     await act(async () => { emit('onRemoved', '1', { parentId: 'root' }); });
     await act(async () => { await wait(320); }); // 等过合并窗口
     expect(container.querySelector('.history-list')!.textContent).toContain('没有匹配的书签');
-    expect(container.querySelector('.section-heading span')!.textContent).toBe('0');
+    expect(container.querySelector('.section-count')!.textContent).toBe('0');
     await act(async () => { root.unmount(); });
     container.remove();
   });

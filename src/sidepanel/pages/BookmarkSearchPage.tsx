@@ -1,11 +1,13 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { BookmarkOrganizePage } from './BookmarkOrganizePage';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 
 import {
   createBookmarkService,
   searchBookmarks,
   type BookmarkEntry,
 } from '../../modules/bookmark-search/bookmark-service';
-import { BackIcon, CloseIcon, SearchIcon } from '../components/icons';
+import { AppHeader } from '../components/AppHeader';
+import { BackIcon, CloseIcon, OrganizeIcon, SearchIcon } from '../components/icons';
 
 interface Props {
   focusToken: number;
@@ -15,8 +17,29 @@ interface Props {
 /** 导入或批量编辑会产生一连串事件；合并窗口内的变化只触发一次重载。 */
 const REFRESH_DEBOUNCE_MS = 200;
 
+/** 高亮搜索命中，保留原文大小写；没有关键字时原样返回。 */
+const highlightMatch = (text: string, query: string): ReactNode => {
+  const needle = query.trim();
+  if (!needle) return text;
+  const haystack = text.toLowerCase();
+  const target = needle.toLowerCase();
+  const parts: ReactNode[] = [];
+  let cursor = 0;
+  while (cursor < text.length) {
+    const hit = haystack.indexOf(target, cursor);
+    if (hit < 0) {
+      parts.push(text.slice(cursor));
+      break;
+    }
+    if (hit > cursor) parts.push(text.slice(cursor, hit));
+    parts.push(<mark key={`${hit}-${cursor}`}>{text.slice(hit, hit + needle.length)}</mark>);
+    cursor = hit + needle.length;
+  }
+  return parts;
+};
+
 /** 结果项即 listbox 的 option：激活统一走输入框的 Enter，不在 option 里嵌按钮。 */
-function BookmarkItem({ entry, active, onOpen }: { entry: BookmarkEntry; active: boolean; onOpen(): void }) {
+function BookmarkItem({ entry, active, query, onOpen }: { entry: BookmarkEntry; active: boolean; query: string; onOpen(): void }) {
   return (
     <div
       role="option"
@@ -25,14 +48,17 @@ function BookmarkItem({ entry, active, onOpen }: { entry: BookmarkEntry; active:
       className={`history-item history-open bookmark-result${active ? ' active' : ''}`}
       onClick={onOpen}
     >
-      <div className="history-name"><strong title={entry.title}>{entry.title}</strong></div>
-      {entry.folderPath && <div className="meta" title={entry.folderPath}>{entry.folderPath}</div>}
-      <div className="host" title={entry.url} dir="ltr">{entry.url}</div>
+      <div className="history-name"><strong title={entry.title}>{highlightMatch(entry.title, query)}</strong></div>
+      {entry.folderPath && <div className="meta" title={entry.folderPath}>{highlightMatch(entry.folderPath, query)}</div>}
+      <div className="host" title={entry.url} dir="ltr">{highlightMatch(entry.url, query)}</div>
     </div>
   );
 }
 
 export function BookmarkSearchPage({ focusToken, onBack }: Props) {
+  const [organizing, setOrganizing] = useState(false);
+  const [organizeDirty, setOrganizeDirty] = useState(false);
+  const organizeDirtyRef = useRef(false);
   const [entries, setEntries] = useState<BookmarkEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -85,16 +111,28 @@ export function BookmarkSearchPage({ focusToken, onBack }: Props) {
     }
   }, []);
 
+  /** 整理页有未应用的勾选或 AI 预览时，返回/关闭前先确认，避免一次误触丢掉操作。 */
+  const leaveOrganize = (): void => {
+    if (organizeDirty && !window.confirm('返回书签搜索会丢失当前勾选和 AI 预览，确定返回？')) return;
+    setOrganizeDirty(false);
+    setOrganizing(false);
+  };
+
+  const closeFromOrganize = (): void => {
+    if (organizeDirty && !window.confirm('关闭侧栏会丢失当前勾选和 AI 预览，确定关闭？')) return;
+    void closePanel();
+  };
+
   useEffect(() => {
     const handleEscape = (event: globalThis.KeyboardEvent): void => {
-      if (event.key !== 'Escape' || event.isComposing) return;
+      if (organizing || event.key !== 'Escape' || event.isComposing) return;
       event.preventDefault();
       event.stopPropagation();
       void closePanel();
     };
     document.addEventListener('keydown', handleEscape, true);
     return () => document.removeEventListener('keydown', handleEscape, true);
-  }, [closePanel]);
+  }, [closePanel, organizing]);
 
   useEffect(() => {
     let disposed = false;
@@ -113,8 +151,21 @@ export function BookmarkSearchPage({ focusToken, onBack }: Props) {
   }, [refresh, store]);
 
   useEffect(() => {
-    inputRef.current?.focus();
+    organizeDirtyRef.current = organizeDirty;
+  }, [organizeDirty]);
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      // 快捷键再次唤起搜索时也会离开整理页，未应用的操作同样需要确认。
+      if (organizeDirtyRef.current && !window.confirm('返回书签搜索会丢失当前勾选和 AI 预览，确定返回？')) return;
+      setOrganizeDirty(false);
+      setOrganizing(false);
+    });
   }, [focusToken]);
+
+  useEffect(() => {
+    if (!organizing) inputRef.current?.focus();
+  }, [organizing, focusToken]);
 
   useEffect(() => {
     document.querySelector('.history-item.active')?.scrollIntoView({ block: 'nearest' });
@@ -146,16 +197,32 @@ export function BookmarkSearchPage({ focusToken, onBack }: Props) {
     }
   };
 
+  if (organizing) return <>
+    <header className="page-header">
+      <button className="icon-button" onClick={leaveOrganize} aria-label="返回书签搜索"><BackIcon /></button>
+      <div><h1>智能整理</h1></div>
+      <button className="icon-button bookmark-close" aria-label="关闭书签搜索侧栏" onClick={closeFromOrganize}><CloseIcon /></button>
+    </header>
+    <BookmarkOrganizePage active onBack={leaveOrganize} onDirtyChange={setOrganizeDirty} />
+  </>;
+
   return (
     <>
-      <header className="page-header">
-        <button className="icon-button" onClick={onBack} aria-label="返回表单历史"><BackIcon /></button>
-        <div><span className="eyebrow">书签搜索</span><h1>浏览器书签</h1></div>
-        <button className="icon-button bookmark-close" onClick={() => void closePanel()} aria-label="关闭书签搜索侧栏" title="关闭侧栏（Esc）"><CloseIcon /></button>
-      </header>
+      <AppHeader
+        active="bookmarks"
+        onSelect={(module) => { if (module === 'forms') onBack(); }}
+        onClose={() => void closePanel()}
+        closeLabel="关闭书签搜索侧栏"
+      />
 
       <section className="history-section">
-        <div className="section-heading"><h2>书签</h2><span className="section-count">{searching ? results.length : entries.length}</span></div>
+        <div className="section-heading">
+          <span className="section-heading-title"><h2>书签</h2><span className="section-count">{searching ? results.length : entries.length}</span></span>
+          <button type="button" className="small-button organize-entry" aria-label="智能整理与自动分类" onClick={() => { setOrganizeDirty(false); setOrganizing(true); }}>
+            <OrganizeIcon />
+            <span>智能整理</span>
+          </button>
+        </div>
         <div className="search-box">
           <SearchIcon />
           <input
@@ -218,6 +285,7 @@ export function BookmarkSearchPage({ focusToken, onBack }: Props) {
                 key={entry.id}
                 entry={entry}
                 active={index === activeIndex}
+                query={query}
                 onOpen={() => void openNewTab(entry)}
               />
             ))
