@@ -45,6 +45,9 @@ if (!manifest.permissions.includes('webNavigation') ||
 
 const event = { addListener() {} };
 globalThis.chrome = {
+  bookmarks: { onCreated: event, onChanged: event, onMoved: event, onRemoved: event,
+    onChildrenReordered: event, onImportBegan: event, onImportEnded: event },
+  alarms: { create: async () => {}, onAlarm: event },
   commands: { onCommand: event, getAll: async () => [] },
   contextMenus: { create() {}, onClicked: event, removeAll: async () => {} },
   runtime: { onInstalled: event, onMessage: event },

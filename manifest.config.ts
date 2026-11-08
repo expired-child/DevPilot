@@ -15,7 +15,8 @@ export default defineManifest({
   description: '面向开发者的浏览器效率工具，首个模块为表单剪贴板。',
   version: '0.1.9',
   minimum_chrome_version: '141',
-  permissions: ['activeTab', 'bookmarks', 'contextMenus', 'sidePanel', 'storage', 'webNavigation'],
+  permissions: ['activeTab', 'alarms', 'bookmarks', 'contextMenus', 'sidePanel', 'storage', 'webNavigation'],
+  optional_host_permissions: ['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*'],
   action: {
     default_title: '打开 DevPilot 侧栏',
   },

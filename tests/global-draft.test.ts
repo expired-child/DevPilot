@@ -152,7 +152,7 @@ describe('global replacement draft in the sidepanel', () => {
     expect([...container.querySelectorAll('button')].some((button) => button.textContent === '放弃修改')).toBe(true);
 
     await clickButton(container, (button) => button.textContent?.includes('书签搜索'));
-    await clickButton(container, (button) => button.getAttribute('aria-label') === '返回表单历史');
+    await clickButton(container, (button) => button.textContent === '表单剪贴板');
     expect([...container.querySelectorAll('button')].some((button) => button.textContent === '放弃修改')).toBe(true);
     expect(container.querySelector('.replacement-editor summary')!.textContent).toContain('2 条规则');
     expect(Object.keys(session).some((key) => key.startsWith('globalReplacementDraft:'))).toBe(true);

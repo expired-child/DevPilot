@@ -125,11 +125,13 @@ export function PastePreviewPage({ item, settings, replacementPending, onReplace
     setExcluded(new Set(diffs.filter((diff) => diff.target && !diff.target.required).map((diff) => diff.source.key)));
 
   const refresh = async (): Promise<void> => {
-    if (refreshingRef.current || fillingRef.current || report) return;
+    if (refreshingRef.current || fillingRef.current) return;
     refreshingRef.current = true;
     setRefreshing(true);
     try {
       await onRefresh();
+      // 填充完成后再扫描：保留变量与勾选，只解除结果锁定，允许再次填充。
+      setReport(null);
       setSubmissionError(null);
     } catch (error) {
       setSubmissionError(error instanceof Error ? error.message : '重新扫描失败，请重试。');
@@ -181,7 +183,7 @@ export function PastePreviewPage({ item, settings, replacementPending, onReplace
 
   return (
     <>
-      <header className="page-header"><button className="icon-button" onClick={onBack} aria-label="返回表单历史"><BackIcon /></button><div><span className="eyebrow">粘贴前检查</span><h1>粘贴预览</h1></div></header>
+      <header className="page-header"><button className="icon-button" onClick={onBack} aria-label="返回表单历史"><BackIcon /></button><div><h1>粘贴预览</h1></div></header>
       <section className="preview-summary"><div><span>目标页面</span><strong>{targetTitle || '当前页面'}</strong></div><div><span>来源</span><strong>{item.name}</strong></div></section>
       {!report && <button className="text-button refresh-preview" disabled={filling || refreshing} onClick={() => void refresh()}>{refreshing ? '正在扫描…' : '重新扫描当前页'}</button>}
       <section className="input-section"><label className="replacement-toggle"><input type="checkbox" role="switch" aria-label="启用输入值替换" checked={settings.replacementEnabled === true} disabled={replacementPending || filling || refreshing || Boolean(report)} onChange={(event) => void onReplacementToggle(event.target.checked)} />输入值替换：{settings.replacementEnabled ? '已开启' : '已关闭'}</label><p className="replacement-help">此开关也影响快捷键粘贴；关闭后不执行全局或字段替换。</p></section>
@@ -230,11 +232,16 @@ export function PastePreviewPage({ item, settings, replacementPending, onReplace
       </section>
 
       {plan.missingVariables.length > 0 && <div className="inline-error">请填写变量：{plan.missingVariables.join('、')}</div>}
-      {report && <section className="result-card" ref={resultRef} tabIndex={-1}><h2>填充完成</h2><p>成功 {report.success} · 跳过 {report.skipped} · 失败 {report.failed}</p>{report.issues.map((issue, index) => <div key={`${issue.label}-${index}`}><strong>{issue.label}</strong><span>{issue.reason}</span></div>)}<p>再次填充前，请返回历史并重新预览当前页面。</p></section>}
+      {report && <section className="result-card" ref={resultRef} tabIndex={-1}><h2>填充完成</h2><p>成功 {report.success} · 跳过 {report.skipped} · 失败 {report.failed}</p>{report.issues.map((issue, index) => <div key={`${issue.label}-${index}`}><strong>{issue.label}</strong><span>{issue.reason}</span></div>)}<p>如需补填或重试，请先重新扫描当前页，确认目标值后再填充。</p></section>}
       <footer className="sticky-actions">
         {submissionError && <div className="inline-error" role="alert">{submissionError}</div>}
         {!report && blockingReason && <div className="blocking-note" role="status">{blockingReason}</div>}
-        {report ? <button className="primary-button" onClick={onBack}>返回表单历史</button> : <button className="primary-button" disabled={!canFill} onClick={() => void fill()}>{filling ? '正在填充…' : `确认填充（${pasteCount} 个字段）`}</button>}
+        {report ? (
+          <div className="button-row result-actions">
+            <button className="primary-button" disabled={refreshing} onClick={() => void refresh()}>{refreshing ? '正在扫描…' : '重新扫描并再次填充'}</button>
+            <button className="secondary-button" onClick={onBack}>返回表单历史</button>
+          </div>
+        ) : <button className="primary-button" disabled={!canFill} onClick={() => void fill()}>{filling ? '正在填充…' : `确认填充（${pasteCount} 个字段）`}</button>}
         <span className="safety-note">不会自动提交</span>
       </footer>
     </>
