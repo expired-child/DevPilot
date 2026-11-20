@@ -2,8 +2,9 @@ import { getFieldAdapter } from './adapters';
 import type { FieldAdapter } from './adapters/field-adapter';
 import { relocateField } from './matcher/field-matcher';
 import { scanForm, type ScannedField } from './scanner/form-scanner';
+import { findRepeatableTables } from './scanner/repeatable-tables';
 import { scopeElement } from './scanner/scope-registry';
-import type { FieldAssignment, FillReport, FormTargetSnapshot, FormValue } from '../modules/form-clipboard/clipboard-types';
+import type { FieldAssignment, FillReport, FormTargetSnapshot, FormValue, RepeatableTableCell } from '../modules/form-clipboard/clipboard-types';
 import { createFingerprint } from '../modules/form-clipboard/fingerprint';
 
 /** 每次重扫的间隔：足够 React 完成一次联动渲染，又不至于让用户感到卡顿。 */
@@ -68,6 +69,11 @@ const locateControl = (
   controls: ScannedField[],
   usedKeys: ReadonlySet<string>,
 ): ScannedField | undefined => {
+  if (assignment.descriptor?.tableCell) {
+    // 加行会改变重复标签生成的 key，明细字段始终按表格与单元格定位。
+    const matched = relocateField(assignment.descriptor, controls.map((entry) => entry.field));
+    return controls.find((entry) => entry.field === matched);
+  }
   const byKey = assignment.targetKey
     ? controls.find((entry) => entry.field.key === assignment.targetKey)
     : undefined;
@@ -111,6 +117,37 @@ const findTarget = async (
   }
 
   return undefined;
+};
+
+const ROW_ADD_TIMEOUT_MS = 1000;
+
+/** 每次只补紧邻现有行的缺口，等待页面完成一次加行后才处理下一行。 */
+const addMissingTableRow = async (
+  cell: RepeatableTableCell,
+  scope: HTMLElement,
+  attempted: Set<string>,
+): Promise<string | undefined> => {
+  const key = JSON.stringify([cell.table, cell.row]);
+  const table = findRepeatableTables(scope).get(cell.table);
+  if (!table?.addButton || table.rows.length !== cell.row || attempted.has(key)) return undefined;
+
+  attempted.add(key);
+  table.addButton.click();
+  const deadline = performance.now() + ROW_ADD_TIMEOUT_MS;
+  do {
+    const current = findRepeatableTables(scope).get(cell.table);
+    if (current && current.rows.length !== table.rows.length) {
+      // 已有行必须仍在原位置，避免把值写入被移位的记录。
+      const appended = current.rows.length === table.rows.length + 1 && table.rows.every((row, index) => {
+        const retained = current.rows[index];
+        return row === retained || Boolean(row.dataset.rowKey && row.dataset.rowKey === retained.dataset.rowKey);
+      });
+      return appended ? undefined : '新增后明细行顺序已变化，请核对后手动填写';
+    }
+    await wait(RETRY_INTERVAL_MS);
+  } while (performance.now() < deadline);
+
+  return '已点击新增，但未能确认明细行已生成，请核对后手动填写';
 };
 
 /** 同一行的判定容差：两列表单里左右两列的 top 常差几个像素。 */
@@ -194,6 +231,8 @@ export const applyFields = async (assignments: FieldAssignment[], expectedTarget
   const report: FillReport = { success: 0, skipped: 0, failed: 0, issues: [] };
   const budget: WaitBudget = { remainingMs: RETRY_BUDGET_MS };
   const usedKeys = new Set<string>();
+  const attemptedRows = new Set<string>();
+  const blockedTables = new Map<string, string>();
   /** 实际填充成功的控件 key；重定位后可能与源字段的 targetKey 不同，回读按它核对。 */
   const applied = new Map<FieldAssignment, string>();
   /** 每个字段只保留最后一次尝试的结论，重试成功的不再计入失败/跳过。 */
@@ -217,10 +256,21 @@ export const applyFields = async (assignments: FieldAssignment[], expectedTarget
       const assignment = queue[cursor];
       cursor += 1;
 
+      const cell = assignment.descriptor?.tableCell;
+      if (cell) {
+        const reason = blockedTables.get(cell.table) ?? await addMissingTableRow(cell, scope, attemptedRows);
+        if (reason) {
+          blockedTables.set(cell.table, reason);
+          outcome.set(assignment, { failed: false, reason });
+          retry.push(assignment);
+          continue;
+        }
+      }
       const target = await findTarget(assignment, scope, budget, usedKeys);
 
       if (!target) {
-        outcome.set(assignment, { failed: false, reason: '页面变化后未找到目标字段' });
+        const reason = cell ? '未找到目标明细字段，请手动补行后重试' : '页面变化后未找到目标字段';
+        outcome.set(assignment, { failed: false, reason });
         retry.push(assignment);
         continue;
       }
@@ -267,8 +317,7 @@ export const applyFields = async (assignments: FieldAssignment[], expectedTarget
     // 而不是等到最后统一报「被联动重置」。
     const controlsAfter = applied.size > 0 ? scanForm(document, undefined, scope).controls : [];
     for (const [entry, key] of [...applied]) {
-      const current = controlsAfter.find((control) => control.field.key === key) ??
-        locateControl({ ...entry, targetKey: key }, controlsAfter, usedKeys);
+      const current = locateControl({ ...entry, targetKey: key }, controlsAfter, usedKeys);
       const adapter = current && getFieldAdapter(current.element);
       if (!current || !adapter || !valueMatches(adapter, adapter.getValue(current.element), entry.value)) {
         applied.delete(entry);
@@ -297,9 +346,8 @@ export const applyFields = async (assignments: FieldAssignment[], expectedTarget
   // 后续字段的联动也可能清空之前已填的值，成功数以最终页面回读为准。
   const finalControls = scanForm(document, undefined, scope).controls;
   for (const [assignment, targetKey] of applied) {
-    const current = finalControls.find((entry) => entry.field.key === targetKey) ??
-      // 延迟字段下发时 targetKey 为空，回读必须用填充时定位到的 key 继续找。
-      locateControl({ ...assignment, targetKey }, finalControls, usedKeys);
+    // 延迟字段下发时 targetKey 为空，回读必须用填充时定位到的 key 继续找。
+    const current = locateControl({ ...assignment, targetKey }, finalControls, usedKeys);
     const adapter = current && getFieldAdapter(current.element);
     if (!current || !adapter || !valueMatches(adapter, adapter.getValue(current.element), assignment.value)) {
       report.failed += 1;

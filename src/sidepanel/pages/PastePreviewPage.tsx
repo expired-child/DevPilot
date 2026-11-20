@@ -158,8 +158,12 @@ export function PastePreviewPage({ item, settings, replacementPending, onReplace
     const rowExcluded = excluded.has(diff.source.key);
     // 目标表单当前没渲染的字段若仍在延迟填充列表里，会在填充阶段随联动出现后再试一次。
     const deferred = Boolean(!diff.target && deferredKeys.has(diff.source.key));
+    const deferredTableCell = deferred && Boolean(diff.source.tableCell);
     const willFill = Boolean(diff.target && assignmentKeys.has(diff.target.key)) || deferred;
-    const statusText = deferred ? '待联动填充' : !diff.target ? labels.UNMATCHED : rowExcluded ? '已排除' : diff.status === 'HELD' ? labels.HELD : !willFill ? '已跳过' : labels[diff.status];
+    const statusText = deferred ? (deferredTableCell ? '待补行填充' : '待联动填充') : !diff.target ? labels.UNMATCHED : rowExcluded ? '已排除' : diff.status === 'HELD' ? labels.HELD : !willFill ? '已跳过' : labels[diff.status];
+    const missingTargetHint = deferredTableCell
+      ? '确认填充后，将在能唯一识别新增按钮时补行并填写'
+      : deferred ? '目标表单当前未渲染该字段，填充时会重扫并按联动结果尝试填写' : '未找到高置信度匹配，已跳过';
     return (
       <article className={`diff-row ${rowExcluded ? 'excluded' : diff.status.toLowerCase()}`} key={diff.source.key}>
         <div className="diff-head">
@@ -174,7 +178,7 @@ export function PastePreviewPage({ item, settings, replacementPending, onReplace
           <span aria-hidden="true">→</span>
           <div><span>{willFill ? '将填入' : '源记录'}</span><strong>{valueText(diff.nextValue) || '（空）'}</strong></div>
         </div>
-        {!diff.target && <small>{deferred ? '目标表单当前未渲染该字段，填充时会重扫并按联动结果尝试填写' : '未找到高置信度匹配，已跳过'}</small>}
+        {!diff.target && <small>{missingTargetHint}</small>}
       </article>
     );
   };

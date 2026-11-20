@@ -4,6 +4,8 @@ import { scopeElement } from './scanner/scope-registry';
 import { registerPageShortcuts } from './shortcut';
 import type { ContentRequest, ContentResponse } from '../shared/messaging/messages';
 
+let filling = false;
+
 const showToast = (message: string, tone: 'success' | 'error' = 'success'): void => {
   document.getElementById('devpilot-toast')?.remove();
   const toast = document.createElement('div');
@@ -43,7 +45,13 @@ const handleRequest = async (request: ContentRequest): Promise<ContentResponse> 
       return { ok: true, candidates: listFormCandidates() };
     }
     if (request.type === 'APPLY_FIELDS') {
-      return { ok: true, report: await applyFields(request.assignments, request.expectedTarget) };
+      if (filling) return { ok: false, error: '当前页面正在填充，请等待完成。' };
+      filling = true;
+      try {
+        return { ok: true, report: await applyFields(request.assignments, request.expectedTarget) };
+      } finally {
+        filling = false;
+      }
     }
     showToast(request.message, request.tone);
     return { ok: true };

@@ -75,6 +75,7 @@ const descriptorOf = (field: FormField): FieldDescriptor => ({
   placeholder: field.placeholder,
   ariaLabel: field.ariaLabel,
   selector: field.selector,
+  tableCell: field.tableCell,
 });
 
 /** 生成与既有值不重复的唯一值：order-route → order-route-2 → order-route-3。 */

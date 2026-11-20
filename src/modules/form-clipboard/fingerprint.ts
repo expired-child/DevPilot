@@ -5,7 +5,11 @@ const stableValue = (value: FormField['value']): string =>
 
 export const createFingerprint = (host: string, fields: FormField[]): string => {
   const content = fields
-    .map((field) => `${field.key}\u0000${field.type}\u0000${stableValue(field.value)}`)
+    .map((field) => {
+      const value = `${field.key}\u0000${field.type}\u0000${stableValue(field.value)}`;
+      const cell = field.tableCell;
+      return cell ? `${value}\u0000${JSON.stringify([cell.table, cell.row, cell.column])}` : value;
+    })
     .sort()
     .join('\u0001');
   const input = `${host}\u0002${content}`;

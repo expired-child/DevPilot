@@ -6,6 +6,7 @@ import type {
   FieldType,
   FormField,
   FormScanResult,
+  RepeatableTableCell,
 } from '../../modules/form-clipboard/clipboard-types';
 import type { FormCandidateSummary } from '../../shared/messaging/messages';
 import {
@@ -22,6 +23,7 @@ import {
 import { DefaultFieldFilter, findNativeSelectWrapper, type FieldFilter, type FormControlElement } from './field-filter';
 import { closestComposed, composedParent, containsComposed, deepActiveElement, querySelectorAllDeep } from './composed-dom';
 import { resolveLabel } from './label-resolver';
+import { findRepeatableTables } from './repeatable-tables';
 import { scopeIdOf } from './scope-registry';
 import { isRendered } from './visibility';
 
@@ -429,6 +431,25 @@ export const scanForm = (
     };
     return [{ field: { ...partial, key: fieldKey(partial) }, element }];
   });
+
+  const tableCells = new Map<Element, RepeatableTableCell>();
+  for (const [table, { rows }] of findRepeatableTables(scope)) {
+    rows.forEach((row, index) => {
+      for (const cell of row.cells) tableCells.set(cell, { table, row: index, column: cell.cellIndex });
+    });
+  }
+  const controlsByCell = new Map<Element, ScannedField[]>();
+  for (const entry of initial) {
+    const cell = closestComposed(entry.element, 'td');
+    if (!cell || !tableCells.has(cell)) continue;
+    const controls = controlsByCell.get(cell) ?? [];
+    controls.push(entry);
+    controlsByCell.set(cell, controls);
+  }
+  // 单元格有多个独立控件时，列位置不足以确定填哪个，沿用普通字段匹配。
+  for (const [cell, controls] of controlsByCell) {
+    if (controls.length === 1) controls[0].field.tableCell = tableCells.get(cell);
+  }
 
   const counts = initial.reduce<Record<string, number>>((result, entry) => {
     result[entry.field.key] = (result[entry.field.key] ?? 0) + 1;

@@ -22,6 +22,13 @@ export interface ReplacementRule {
   replacement: string;
 }
 
+export interface RepeatableTableCell {
+  /** 当前表单内唯一的表头序列，用来跨编辑和新增表单定位同一张明细表。 */
+  table: string;
+  row: number;
+  column: number;
+}
+
 export interface FormField {
   key: string;
   label?: string;
@@ -37,6 +44,7 @@ export interface FormField {
   required?: boolean;
   disabled?: boolean;
   metadata?: Record<string, string>;
+  tableCell?: RepeatableTableCell;
 }
 
 /**
@@ -45,7 +53,7 @@ export interface FormField {
  */
 export type FieldDescriptor = Pick<
   FormField,
-  'type' | 'label' | 'name' | 'id' | 'placeholder' | 'ariaLabel' | 'selector'
+  'type' | 'label' | 'name' | 'id' | 'placeholder' | 'ariaLabel' | 'selector' | 'tableCell'
 >;
 
 export interface FormSource {

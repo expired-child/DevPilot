@@ -23,6 +23,14 @@ export const scoreFieldPair = (
     return { score: 0, reasons: [] };
   }
 
+  if (source.tableCell) {
+    const { table, row, column } = source.tableCell;
+    const cell = target.tableCell;
+    return cell?.table === table && cell.row === row && cell.column === column
+      ? { score: MATCH_THRESHOLD, reasons: ['table-cell'] }
+      : { score: 0, reasons: [] };
+  }
+
   let score = source.type === target.type ? 20 : 10;
   const reasons = source.type === target.type ? ['type'] : [];
   const rules: Array<[keyof FieldDescriptor, number, string]> = [
@@ -48,7 +56,7 @@ export const scoreFieldPair = (
 
 /** 无语义标识的控件只能依赖唯一结构路径；同类型且路径唯一命中才允许回填。 */
 const structuralMatch = (source: FieldDescriptor, target: FormField): boolean =>
-  source.type === target.type && Boolean(source.selector) && source.selector === target.selector;
+  !source.tableCell && source.type === target.type && Boolean(source.selector) && source.selector === target.selector;
 
 /**
  * 在重渲染后的控件集合里按语义找回同一字段。
