@@ -32,7 +32,7 @@ h1, h2, p { margin: 0; }
 .app-brand-text h1 { font-size: 17px; line-height: 1.25; letter-spacing: -.02em; }
 .app-brand-text p { margin-top: 2px; color: #63666f; font-size: 11.5px; }
 .app-close { flex: none; }
-.module-nav { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 3px; padding: 3px; border: 1px solid #e3e3de; border-radius: 12px; background: #ecece7; }
+.module-nav { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; padding: 3px; border: 1px solid #e3e3de; border-radius: 12px; background: #ecece7; }
 .module-nav-item { min-height: 34px; padding: 7px 8px; border: 0; border-radius: 9px; color: #555964; background: transparent; font-size: 12.5px; font-weight: 650; transition: color .15s ease, background .15s ease, box-shadow .15s ease; }
 .module-nav-item:hover { color: #191b20; background: rgba(255,255,255,.6); }
 .module-nav-item[aria-current="page"] { color: #191b20; background: #fff; box-shadow: 0 1px 2px rgba(25,27,32,.1), 0 0 0 1px rgba(25,27,32,.03); }
@@ -190,6 +190,11 @@ mark { padding: 0 1px; border-radius: 3px; color: inherit; background: #f5e3a0; 
 .preview-summary strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .refresh-preview { display: block; margin: 8px 0 0 auto; }
 .input-section { display: grid; gap: 10px; margin-top: 20px; padding: 14px; border: 1px solid #e8e8e3; border-radius: 15px; background: #fff; box-shadow: 0 5px 20px rgba(25,27,32,.045); }
+.book-clip-panel { margin-top: 0; }
+.book-clip-options { display: grid; min-width: 0; gap: 10px; margin: 0; padding: 10px; border: 1px solid #8a8e97; border-radius: 10px; }
+.book-clip-options legend { padding: 0 4px; font-weight: 650; }
+.book-clip-chapters { display: grid; gap: 5px; max-height: 240px; overflow-y: auto; }
+.book-clip-chapters label { display: flex; align-items: baseline; gap: 6px; overflow-wrap: anywhere; }
 .inline-error { margin-top: 8px; padding: 9px 10px; border: 1px solid #f0d2d4; border-radius: 9px; color: #9c3b44; background: #f8e9ea; font-size: 11px; line-height: 1.5; }
 .inline-confirm { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin-top: 8px; padding: 9px 10px; border: 1px solid #f0d2d4; border-radius: 10px; color: #9c3b44; background: #f8e9ea; font-size: 12px; }
 .inline-confirm > span { min-width: 0; flex: 1 1 120px; }

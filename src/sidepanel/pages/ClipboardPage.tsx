@@ -2,7 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 
 import { searchHistory } from '../../modules/form-clipboard/clipboard-service';
 import type { FormClipboardItem, FormClipboardState, ReplacementRule } from '../../modules/form-clipboard/clipboard-types';
-import { AppHeader } from '../components/AppHeader';
+import { AppHeader, type AppModule } from '../components/AppHeader';
 import { CloseIcon, PinIcon, SearchIcon } from '../components/icons';
 import { GlobalReplacementSettings } from './GlobalReplacementSettings';
 
@@ -12,7 +12,7 @@ interface Props {
   onCopy(): void;
   onPaste(item: FormClipboardItem): void;
   onDetail(item: FormClipboardItem): void;
-  onBookmarks(): void;
+  onSelectModule(module: AppModule): void;
   onClear(): Promise<void>;
   replacementPending: boolean;
   onReplacementToggle(enabled: boolean): Promise<void>;
@@ -60,7 +60,7 @@ function HistoryItem({ item, current, busy, onPaste, onDetail }: { item: FormCli
   );
 }
 
-export function ClipboardPage({ state, busyAction, onCopy, onPaste, onDetail, onBookmarks, onClear, replacementPending, onReplacementToggle, replacementDraft, replacementDraftConflict, onReplacementDraftChange, onReplacementDraftRebase, onSaveReplacementRules }: Props) {
+export function ClipboardPage({ state, busyAction, onCopy, onPaste, onDetail, onSelectModule, onClear, replacementPending, onReplacementToggle, replacementDraft, replacementDraftConflict, onReplacementDraftChange, onReplacementDraftRebase, onSaveReplacementRules }: Props) {
   const [query, setQuery] = useState('');
   const [clearing, setClearing] = useState(false);
   const [confirmClear, setConfirmClear] = useState(false);
@@ -88,7 +88,7 @@ export function ClipboardPage({ state, busyAction, onCopy, onPaste, onDetail, on
     <>
       <AppHeader
         active="forms"
-        onSelect={(module) => { if (module === 'bookmarks') onBookmarks(); }}
+        onSelect={onSelectModule}
       />
 
       <section className="quick-actions" aria-label="常用操作">

@@ -1,21 +1,23 @@
 import { CloseIcon } from './icons';
 
-export type AppModule = 'forms' | 'bookmarks';
+export type AppModule = 'forms' | 'bookmarks' | 'book-clip';
 
 interface Props {
   active: AppModule;
   onSelect(module: AppModule): void;
   onClose?(): void;
   closeLabel?: string;
+  disabled?: boolean;
 }
 
 const MODULES: Array<{ id: AppModule; label: string }> = [
   { id: 'forms', label: '表单剪贴板' },
   { id: 'bookmarks', label: '书签搜索' },
+  { id: 'book-clip', label: '网页成书' },
 ];
 
 /** 顶层页共用应用框架：品牌、模块切换与关闭侧栏。 */
-export function AppHeader({ active, onSelect, onClose, closeLabel = '关闭侧栏' }: Props) {
+export function AppHeader({ active, onSelect, onClose, closeLabel = '关闭侧栏', disabled }: Props) {
   return (
     <header className="app-header">
       <div className="app-brand">
@@ -42,6 +44,7 @@ export function AppHeader({ active, onSelect, onClose, closeLabel = '关闭侧�
             key={module.id}
             type="button"
             className="module-nav-item"
+            disabled={disabled && active !== module.id}
             aria-current={active === module.id ? 'page' : undefined}
             onClick={() => {
               if (active !== module.id) onSelect(module.id);

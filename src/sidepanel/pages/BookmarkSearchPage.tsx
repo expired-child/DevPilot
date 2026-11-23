@@ -12,6 +12,7 @@ import { BackIcon, CloseIcon, OrganizeIcon, SearchIcon } from '../components/ico
 interface Props {
   focusToken: number;
   onBack(): void;
+  onBookClip?(): void;
 }
 
 /** 导入或批量编辑会产生一连串事件；合并窗口内的变化只触发一次重载。 */
@@ -55,7 +56,7 @@ function BookmarkItem({ entry, active, query, onOpen }: { entry: BookmarkEntry; 
   );
 }
 
-export function BookmarkSearchPage({ focusToken, onBack }: Props) {
+export function BookmarkSearchPage({ focusToken, onBack, onBookClip }: Props) {
   const [organizing, setOrganizing] = useState(false);
   const [organizeDirty, setOrganizeDirty] = useState(false);
   const organizeDirtyRef = useRef(false);
@@ -210,7 +211,7 @@ export function BookmarkSearchPage({ focusToken, onBack }: Props) {
     <>
       <AppHeader
         active="bookmarks"
-        onSelect={(module) => { if (module === 'forms') onBack(); }}
+        onSelect={(module) => { if (module === 'forms') onBack(); else if (module === 'book-clip') onBookClip?.(); }}
         onClose={() => void closePanel()}
         closeLabel="关闭书签搜索侧栏"
       />

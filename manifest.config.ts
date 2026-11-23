@@ -12,10 +12,10 @@ const formContentScript = {
 export default defineManifest({
   manifest_version: 3,
   name: 'DevPilot',
-  description: '面向开发者的浏览器效率工具，首个模块为表单剪贴板。',
+  description: '面向开发者的浏览器效率工具，支持表单剪贴板、书签搜索与网页成书。',
   version: '0.1.9',
   minimum_chrome_version: '141',
-  permissions: ['activeTab', 'alarms', 'bookmarks', 'contextMenus', 'sidePanel', 'storage', 'webNavigation'],
+  permissions: ['activeTab', 'alarms', 'bookmarks', 'contextMenus', 'downloads', 'sidePanel', 'storage', 'webNavigation'],
   optional_host_permissions: ['https://*/*', 'http://localhost/*', 'http://127.0.0.1/*'],
   action: {
     default_title: '打开 DevPilot 侧栏',
