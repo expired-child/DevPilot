@@ -1,5 +1,3 @@
-import { ChromeOrganizerRepository } from '../modules/bookmark-organizer/bookmark-organizer-repository';
-import { BookmarkOrganizeCoordinator, registerBookmarkCommands, registerBookmarkAutoOrganize } from './bookmark-coordinator';
 import { ClipboardService } from '../modules/form-clipboard/clipboard-service';
 import { ChromeClipboardRepository } from '../modules/form-clipboard/clipboard-repository';
 import { ClipboardWriteCoordinator, registerClipboardCommands } from './clipboard-coordinator';
@@ -15,14 +13,6 @@ import { registerContextMenus } from './context-menu';
 const repository = new ChromeClipboardRepository();
 const clipboard = new ClipboardWriteCoordinator(new ClipboardService(repository));
 registerClipboardCommands(clipboard);
-
-const organizer = new BookmarkOrganizeCoordinator(new ChromeOrganizerRepository());
-registerBookmarkCommands(organizer);
-try {
-  registerBookmarkAutoOrganize(organizer);
-} catch {
-  console.error('[DevPilot] bookmark-auto-organize:setup-failed');
-}
 
 const targetTab = async (tab?: chrome.tabs.Tab): Promise<chrome.tabs.Tab> => tab?.id ? tab : getActiveTab();
 
