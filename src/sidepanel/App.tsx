@@ -76,6 +76,7 @@ const buildPreviewView = (itemId: string, tabId: number, target: ScannedTab): Ex
 export function App() {
   const [state, setState] = useState<FormClipboardState | null>(null);
   const [view, setView] = useState<View>({ page: 'list' });
+  const [clipboardBusy, setClipboardBusy] = useState<'copy' | 'paste' | null>(null);
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; text: string } | null>(null);
   const [replacementPending, setReplacementPending] = useState(false);
   const [replacementDraft, setReplacementDraft] = useState<ReplacementRule[] | null>(null);
@@ -162,6 +163,7 @@ export function App() {
   };
 
   const startPaste = useCallback(async (item: FormClipboardItem): Promise<void> => {
+    setClipboardBusy('paste');
     try {
       const tab = await getActiveTab();
       const options = (await listFormCandidates(tab.id!)).filter((option) => option.fieldCount > 0);
@@ -176,6 +178,8 @@ export function App() {
       setNotice(null);
     } catch (error) {
       throw new Error(errorText(error), { cause: error });
+    } finally {
+      setClipboardBusy(null);
     }
   }, []);
 
@@ -250,6 +254,7 @@ export function App() {
   };
 
   const copyCurrent = async (): Promise<void> => {
+    setClipboardBusy('copy');
     try {
       const tab = await getActiveTab();
       const options = (await listFormCandidates(tab.id!)).filter((option) => option.fieldCount > 0);
@@ -264,6 +269,8 @@ export function App() {
       await captureCandidate(tab.id!, chosen);
     } catch (error) {
       showError(error);
+    } finally {
+      setClipboardBusy(null);
     }
   };
 
@@ -365,9 +372,14 @@ export function App() {
           onPaste={(entry) => void startPaste(entry).catch(showError)}
           onDetail={(entry) => setView({ page: 'detail', itemId: entry.id })}
           onBookmarks={openBookmarks}
+          busyAction={clipboardBusy}
           onClear={async () => {
-            await submitCommand({ type: 'CLEAR_HISTORY' });
-            await reload();
+            try {
+              await submitCommand({ type: 'CLEAR_HISTORY' });
+              await reload();
+            } catch (error) {
+              showError(error);
+            }
           }}
           replacementDraft={replacementDraft}
           replacementDraftConflict={replacementDraftConflict}
@@ -399,9 +411,13 @@ export function App() {
             setNotice({ tone: 'success', text: '更改已保存' });
           }}
           onDelete={async () => {
-            await submitCommand({ type: 'REMOVE_ITEM', id: item.id });
-            await reload();
-            setView({ page: 'list' });
+            try {
+              await submitCommand({ type: 'REMOVE_ITEM', id: item.id });
+              await reload();
+              setView({ page: 'list' });
+            } catch (error) {
+              showError(error);
+            }
           }}
         />
       )}

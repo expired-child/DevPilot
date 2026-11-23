@@ -42,3 +42,11 @@ export const RefreshIcon = (props: IconProps) => (
 export const ChevronRightIcon = (props: IconProps) => (
   <Icon {...props}><path d="m9 18 6-6-6-6" /></Icon>
 );
+
+export const PinIcon = (props: IconProps) => (
+  <Icon {...props}><path d="M9 3h6l-1 6 3 3H7l3-3-1-6Z" /><path d="M12 12v9" /></Icon>
+);
+
+export const OrganizeIcon = (props: IconProps) => (
+  <Icon {...props}><path d="M4 6h6M4 12h10M4 18h6" /><path d="M15 5h5v5h-5zM15 14h5v5h-5z" /></Icon>
+);

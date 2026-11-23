@@ -16,7 +16,7 @@ export function FormCandidatesPage({ candidates, title, onSelect, onRefresh, onB
     <>
       <header className="page-header">
         <button className="icon-button" onClick={onBack} aria-label="返回表单历史"><BackIcon /></button>
-        <div><span className="eyebrow">选择目标</span><h1 title={title}>{title}</h1></div>
+        <div><h1 title={title}>{title}</h1></div>
         <button className="icon-button" onClick={onRefresh} aria-label="重新扫描目标页" title="重新扫描目标页"><RefreshIcon /></button>
       </header>
 

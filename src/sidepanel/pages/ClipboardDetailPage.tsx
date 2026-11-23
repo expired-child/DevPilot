@@ -27,6 +27,7 @@ export function ClipboardDetailPage({ item, onBack, onPaste, onSave, onDelete }:
   const [excludedKeys, setExcludedKeys] = useState(() => new Set(item.excludedFieldKeys ?? []));
   const [saving, setSaving] = useState(false);
   const [openingPreview, setOpeningPreview] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const savingRef = useRef(false);
   const openingRef = useRef(false);
@@ -81,6 +82,15 @@ export function ClipboardDetailPage({ item, onBack, onPaste, onSave, onDelete }:
     if (!dirty || window.confirm('有未保存的修改，确定放弃并返回吗？')) onBack();
   };
 
+  const remove = async (): Promise<void> => {
+    setDeleting(true);
+    try {
+      await onDelete();
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   const paste = async (): Promise<void> => {
     if (savingRef.current || openingRef.current) return;
     openingRef.current = true;
@@ -100,7 +110,7 @@ export function ClipboardDetailPage({ item, onBack, onPaste, onSave, onDelete }:
 
   return (
     <>
-      <header className="page-header"><button className="icon-button" disabled={saving || openingPreview} onClick={leave} aria-label="返回表单历史"><BackIcon /></button><div><span className="eyebrow">剪贴板详情</span><h1 title={item.name}>{item.name}</h1></div></header>
+      <header className="page-header"><button className="icon-button" disabled={saving || openingPreview} onClick={leave} aria-label="返回表单历史"><BackIcon /></button><div><h1 title={item.name}>{item.name}</h1></div></header>
 
       <section className="detail-card">
         <label className="field-label">名称<input value={name} disabled={saving || openingPreview} onChange={(event) => setName(event.target.value)} /></label>
@@ -131,7 +141,7 @@ export function ClipboardDetailPage({ item, onBack, onPaste, onSave, onDelete }:
         <button className="secondary-button full" disabled={!dirty || Boolean(ruleError) || saving || openingPreview} onClick={() => void save()}>保存更改</button>
       </section>
 
-      <footer className="sticky-actions">{error && <div className="inline-error" role="alert">{error}</div>}<button className="primary-button" disabled={Boolean(ruleError) || saving || openingPreview} onClick={() => void paste()}>{openingPreview ? '正在打开预览…' : dirty ? '保存并预览填充' : '预览并填充此表单'}</button><button className="text-button danger" disabled={saving || openingPreview} onClick={() => { if (window.confirm(`确定删除“${item.name}”吗？`)) void onDelete(); }}>删除</button></footer>
+      <footer className="sticky-actions">{error && <div className="inline-error" role="alert">{error}</div>}<button className="primary-button" disabled={Boolean(ruleError) || saving || openingPreview || deleting} onClick={() => void paste()}>{openingPreview ? '正在打开预览…' : dirty ? '保存并预览填充' : '预览并填充此表单'}</button><button className="text-button danger" disabled={saving || openingPreview || deleting} onClick={() => { if (window.confirm(`确定删除“${item.name}”吗？`)) void remove(); }}>{deleting ? '正在删除…' : '删除'}</button></footer>
     </>
   );
 }
