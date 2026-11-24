@@ -5,7 +5,9 @@ const tidy = (text?: string | null) => (text ?? '').replace(/\s+/gu, ' ').trim()
 const destination = (url: string) => url.replace(/\(/gu, '%28').replace(/\)/gu, '%29');
 const block = (text: string) => text ? `\n\n${text}\n\n` : '';
 const blockBody = (text: string) => text.trim();
-const coursePage = (url: URL) => /^(?:www\.)?codefather\.cn$/u.test(url.hostname) && /^\/course\/\d+\/section\/\d+\/?$/u.test(url.pathname);
+const courseRoute = (url: URL) => /^(?:www\.)?codefather\.cn$/u.test(url.hostname)
+  ? url.pathname.match(/^\/course\/(\d+)(?:\/section\/(\d+))?\/?$/u) : null;
+const coursePage = (url: URL) => Boolean(courseRoute(url)?.[2]);
 const formatMarks = /[\u061c\u200b\u200e\u200f\u2060]/gu;
 const omitted = 'script,style,template,noscript,svg,canvas,iframe,nav,aside,form,footer,button,input,select,textarea,[hidden],[aria-hidden="true"]';
 const navigation = 'aside,nav,[role="navigation"],[class*="sidebar"],[class*="side-bar"],[class*="catalog"],[class*="chapter-list"],[class*="course-menu"],[class*="course-nav"],[class*="lesson-list"],[class*="menu-list"]';
@@ -17,11 +19,9 @@ function visible(element: HTMLElement): boolean {
   return style.visibility === 'visible' && Number(style.opacity) !== 0;
 }
 
-function articleRoot(doc: Document, url: URL): HTMLElement {
-  if (coursePage(url)) {
-    const courseBody = [...doc.querySelectorAll<HTMLElement>('.course-container .markdown-body, .article-container .markdown-body')].find(visible);
-    if (courseBody) return courseBody;
-  }
+const courseBody = (doc: Document) => [...doc.querySelectorAll<HTMLElement>('.course-container .markdown-body, .article-container .markdown-body')].find(visible);
+
+function articleRoot(doc: Document): HTMLElement {
   const candidates = doc.querySelectorAll<HTMLElement>('article,main,[role="main"],.markdown-body,.article-content,.post-content,.rich-text,.prose,[class*="reader-content"]');
   let best = doc.body;
   let high = -Infinity;
@@ -54,7 +54,7 @@ function selectorOf(el: HTMLElement): string {
   return parts.join(' > ');
 }
 
-function findChapters(doc: Document, url: URL, root: HTMLElement): BookChapter[] {
+function findGenericChapters(doc: Document, url: URL, root: HTMLElement): BookChapter[] {
   const numbered = /^(?:第\s*[一二三四五六七八九十百千\d]+\s*[章节篇]|\d{1,3}(?:[.．、]|\s*[-：:]))\s*\S/u;
   const collect = (container: HTMLElement, allowGeneric: boolean) => {
     const found = new Map<string, BookChapter>();
@@ -77,18 +77,52 @@ function findChapters(doc: Document, url: URL, root: HTMLElement): BookChapter[]
   return (best.length >= 2 ? best : collect(doc.body, false)).slice(0, 450);
 }
 
-export function scanBook(doc = document, href = location.href): BookScan {
+function findCourseChapters(doc: Document, url: URL, courseId: string): BookChapter[] {
+  const found = new Map<string, BookChapter>();
+  for (const anchor of doc.querySelectorAll<HTMLAnchorElement>('.rct-tree-root a.article-title[href]')) {
+    const href = webUrl(anchor.getAttribute('href') ?? '', url.href);
+    if (!href || href.origin !== url.origin || !visible(anchor) || anchor.closest('form,[contenteditable="true"]')) continue;
+    const route = courseRoute(href);
+    if (route?.[1] !== courseId || !route[2] || found.has(route[2])) continue;
+    const title = tidy(anchor.innerText).replace(/\s+(?:可试学|已学完)$/u, '');
+    if (title) found.set(route[2], { title, url: href.href, selector: selectorOf(anchor) });
+    if (found.size >= 450) break;
+  }
+  return [...found.values()];
+}
+
+export async function scanBook(doc = document, href = location.href): Promise<BookScan> {
   const url = new URL(href);
-  const root = articleRoot(doc, url);
+  const route = courseRoute(url);
+  if (route) {
+    let chapters = findCourseChapters(doc, url, route[1]);
+    if (!chapters.length) {
+      // The course summary can render before its separate chapter tree.
+      await new Promise<void>(resolve => {
+        const finish = () => { observer.disconnect(); clearTimeout(timer); resolve(); };
+        const observer = new MutationObserver(() => {
+          chapters = findCourseChapters(doc, url, route[1]);
+          if (chapters.length) finish();
+        });
+        const timer = setTimeout(finish, 6000);
+        observer.observe(doc.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['hidden', 'aria-hidden', 'class', 'style', 'href'] });
+      });
+    }
+    const root = (route[2] ? courseBody(doc) : undefined) ?? articleRoot(doc);
+    return { title: heading(doc, root, url), url: url.href, chapters };
+  }
+  const root = articleRoot(doc);
   if (tidy(root.innerText).length < 25) throw new Error('当前网页未发现可读取的文章正文。');
   const title = heading(doc, root, url);
-  const chapters = findChapters(doc, url, root);
+  const chapters = findGenericChapters(doc, url, root);
   return { title, url: url.href, chapters: chapters.length >= 2 ? chapters : [{ title, url: url.href }] };
 }
 
 export function jumpBookChapter(chapter: BookChapter): boolean {
   const url = new URL(location.href);
-  const current = findChapters(document, url, articleRoot(document, url)).find(item => item.title === chapter.title && item.url === chapter.url);
+  const route = courseRoute(url);
+  const chapters = route ? findCourseChapters(document, url, route[1]) : findGenericChapters(document, url, articleRoot(document));
+  const current = chapters.find(item => item.url === chapter.url && (route || item.title === chapter.title));
   if (!current?.selector) return false;
   const el = document.querySelector<HTMLElement>(current.selector);
   if (!el || el.closest('form,[contenteditable="true"]')) return false;
@@ -102,7 +136,8 @@ export function jumpBookChapter(chapter: BookChapter): boolean {
 export function readBookPage(doc = document, href = location.href): BookPage {
   const url = new URL(href);
   const knownCourse = coursePage(url);
-  const root = articleRoot(doc, url);
+  const root = knownCourse ? courseBody(doc) : articleRoot(doc);
+  if (!root) return { title: heading(doc, doc.body, url), url: url.href, markdown: '', textLength: 0, images: [] };
   const title = heading(doc, root, url);
   const styles = new WeakMap<HTMLElement, CSSStyleDeclaration>();
   const styleOf = (el: HTMLElement) => {
@@ -135,33 +170,53 @@ export function readBookPage(doc = document, href = location.href): BookPage {
       if (node instanceof HTMLElement && (skip(node) || node.matches('a,code,pre,kbd,samp,.katex-display'))) return NodeFilter.FILTER_REJECT;
       return node instanceof Text ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_SKIP;
     });
-    const candidates: { node: Text; prose: Element; value: string; before: string; after: string }[] = [];
+    const textOf = (node: Node) => (node instanceof Text ? displayText(node) : node.textContent ?? '').replace(formatMarks, '').trimEnd();
+    const imageOf = (node: Node) => node instanceof Element && (node.matches('img,picture') || Boolean(node.querySelector('img')));
+    function adjacent(node: Node, scope: Element, direction: 'previousSibling' | 'nextSibling'): Node | undefined {
+      for (let current: Node | null = node; current && current !== scope; current = current.parentNode) {
+        for (let sibling = current[direction]; sibling; sibling = sibling[direction]) {
+          if (sibling instanceof HTMLElement && skip(sibling)) continue;
+          if ((sibling instanceof Element || sibling instanceof Text) && (textOf(sibling).trim() || imageOf(sibling))) return sibling;
+        }
+      }
+    }
+    const candidates: { node: Text; prose: Element; value: string; before: string; after: string; position: 'prose' | 'detached' | 'symbol' }[] = [];
     for (let node = walker.nextNode(); node instanceof Text; node = walker.nextNode()) {
-      const prose = node.parentElement?.closest('p,li,h1,h2,h3,h4,h5,h6,blockquote,td,th');
-      if (!prose || !root.contains(prose)) continue;
+      const container = node.parentElement?.closest('p,li,h1,h2,h3,h4,h5,h6,blockquote,td,th,figure,div');
+      const prose: Element = container && root.contains(container) ? container : root;
       const text = displayText(node).replace(formatMarks, '');
       const tail = text.match(/(?<![A-Za-z0-9+/=])([A-Za-z0-9+/]{42}[AEIMQUYcgkosw048]=)(\s*)$/u);
       if (!tail) continue;
       const before = text.slice(0, tail.index);
-      let context = before.trimEnd();
-      for (let current: Node | null = node; !context && current && current !== prose; current = current.parentNode) {
-        for (let previous = current.previousSibling; !context && previous; previous = previous.previousSibling) {
-          context = (previous.textContent ?? '').replace(formatMarks, '').trimEnd();
-        }
+      const previous = before.trim() ? undefined : adjacent(node, prose, 'previousSibling');
+      const context = before.trimEnd() || (previous && prose !== root ? textOf(previous) : '');
+      let position: (typeof candidates)[number]['position'];
+      if (/(?:\p{Script=Han}|[。！？；，、）】」”’!?;.:：)~～…])$/u.test(context)) position = 'prose';
+      else if (/[{}#*]$/u.test(context)) position = 'symbol';
+      else {
+        if (before.trim() || adjacent(node, prose, 'nextSibling')) continue;
+        const preceding = previous ?? adjacent(node, root, 'previousSibling');
+        const afterImage = preceding && imageOf(preceding) && !textOf(preceding).trim();
+        const atEnd = (!previous || prose === root) && !adjacent(node, root, 'nextSibling');
+        if (!afterImage && !atEnd) continue;
+        position = 'detached';
       }
-      if (/(?:\p{Script=Han}|[。！？；，、）】」”’!?;.)])$/u.test(context)) {
-        candidates.push({ node, prose, value: tail[1], before, after: tail[2] });
-      }
+      candidates.push({ node, prose, value: tail[1], before, after: tail[2], position });
     }
     const occurrences = new Map<string, number>();
-    for (const { value } of candidates) occurrences.set(value, (occurrences.get(value) ?? 0) + 1);
+    const paragraphs = new Set<Element>();
+    for (const { value, prose, position } of candidates) {
+      if (position !== 'prose') continue;
+      occurrences.set(value, (occurrences.get(value) ?? 0) + 1);
+      paragraphs.add(prose);
+    }
     const repeated = [...occurrences.values()].filter(count => count > 1).length;
-    const paragraphs = new Set(candidates.map(item => item.prose)).size;
     // shortcut: known course pattern only; use verified DOM markers if the site changes the embedding.
-    if (paragraphs >= 3 && repeated) {
-      const dense = paragraphs >= 10 && repeated >= 2;
-      for (const { node, value, before, after } of candidates) {
-        if (dense || occurrences.get(value)! > 1) clean.set(node, before.trimEnd() + after);
+    if (paragraphs.size >= 3 && repeated) {
+      const dense = paragraphs.size >= 10 && repeated >= 2;
+      for (const { node, value, before, after, position } of candidates) {
+        const count = occurrences.get(value) ?? 0;
+        if ((dense && position !== 'symbol') || count >= (position === 'detached' ? 1 : 2)) clean.set(node, before.trimEnd() + after);
       }
     }
   }

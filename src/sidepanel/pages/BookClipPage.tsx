@@ -27,7 +27,7 @@ export function BookClipPage({ onSelect }: { onSelect(module: AppModule): void }
       setTarget(next);
       setSelected(next.scan.chapters.map((_, index) => index));
       setTitle(next.scan.chapters.length > 1 ? `${new URL(next.scan.url).hostname} · 在线教程` : next.scan.title);
-      setStatus(`识别到 ${next.scan.chapters.length} 篇。`);
+      setStatus(next.scan.chapters.length ? `识别到 ${next.scan.chapters.length} 篇。` : '未识别到课程章节。请展开网页中的课程目录后重新扫描。');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : '扫描失败');
       setStatus('');

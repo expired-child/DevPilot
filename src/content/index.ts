@@ -20,7 +20,11 @@ async function handleBookClip(request: BookClipAction): Promise<BookClipResult> 
     return { image: await readBookImage(request.url) };
   }
   const { scanBook, readBookPage, jumpBookChapter } = await import('./book-clip');
-  if (request.action === 'scan') return { scan: scanBook() };
+  if (request.action === 'scan') {
+    const scan = await scanBook(document, current.href);
+    if (location.href !== current.href) throw new Error('扫描期间已切换网页，请重新扫描。');
+    return { scan };
+  }
   if (request.action === 'jump') return { jumped: jumpBookChapter(request.chapter) };
   const page = readBookPage();
   bookImages = { pageUrl: page.url, urls: new Set(page.images.map(({ url }) => url)) };

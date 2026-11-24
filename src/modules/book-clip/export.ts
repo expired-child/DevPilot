@@ -116,7 +116,7 @@ export async function exportBook({ target, chapters, title, format, restore, sig
   };
   const initial = await getPage(tabId, origin);
   if (!chapters) {
-    if (initial.textLength < 25) throw new Error('当前文章内容太短，无法确定正文。');
+    if (initial.textLength < 25) throw new Error('未提取到足够的正文，请确认当前章节已加载且可以阅读。');
     if (signal.aborted) return '已停止。';
     await download(new Blob([chapterMarkdown(initial)], { type: 'text/markdown;charset=utf-8' }), `${nameOf(initial.title)}.md`);
     return '已提交 1 篇给浏览器下载。';
@@ -158,13 +158,17 @@ export async function exportBook({ target, chapters, title, format, restore, sig
           }
           const deadline = Date.now() + 16_500;
           let candidate: BookPage | undefined;
+          let missingBody = false;
           for (;;) {
             await wait(450);
-            if (signal.aborted || Date.now() > deadline) throw new Error('页面未能确认切换到此章节');
+            if (signal.aborted || Date.now() > deadline) {
+              throw new Error(missingBody ? '已到达章节，但未读取到正文；请确认该章节可以阅读' : '页面未能确认切换到此章节');
+            }
             const href = await currentUrl();
             if (!href) continue;
             assertOrigin(href);
             const read = await getPage(tabId, origin).catch(() => undefined);
+            if (read && chapter.url && sameResource(read.url, chapter.url)) missingBody = read.textLength < 25;
             if (!read || !matches(read) || (read.markdown === previous.markdown && sameResource(read.url, previous.url))) {
               candidate = undefined;
               continue;
