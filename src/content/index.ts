@@ -2,6 +2,7 @@ import { applyFields } from './apply-fields';
 import { listFormCandidates, isFocusedScannedForm, scanForm } from './scanner/form-scanner';
 import { scopeElement } from './scanner/scope-registry';
 import { registerPageShortcuts } from './shortcut';
+import { registerFilePreview } from './file-preview';
 import type { ContentRequest, ContentResponse } from '../shared/messaging/messages';
 
 let filling = false;
@@ -66,3 +67,4 @@ chrome.runtime.onMessage.addListener((request: ContentRequest, _sender, sendResp
 });
 
 registerPageShortcuts((message) => showToast(message, 'error'));
+registerFilePreview();

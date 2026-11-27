@@ -13,6 +13,7 @@ export const SHORTCUT_ACTIONS = {
 export type ShortcutAction = (typeof SHORTCUT_ACTIONS)[keyof typeof SHORTCUT_ACTIONS];
 
 export const SHORTCUT_BINDINGS_REQUEST = 'GET_SHORTCUT_BINDINGS';
+export const DOWNLOAD_PREVIEW_FILE = 'DOWNLOAD_PREVIEW_FILE';
 
 /** storage.session 中的标记键：目标窗口的侧栏读到后跳转书签搜索页。 */
 export const BOOKMARK_SEARCH_TRIGGER = 'openBookmarkSearch';

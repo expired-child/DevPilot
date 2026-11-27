@@ -6,7 +6,7 @@ import { topSkipReason } from '../modules/form-clipboard/fill-feedback';
 import { createFingerprint } from '../modules/form-clipboard/fingerprint';
 import type { FillReport } from '../modules/form-clipboard/clipboard-types';
 import { getActiveTab, listFormCandidates, scanScope, sendToTab, uniqueCandidate } from '../shared/messaging/tab-messaging';
-import { BOOKMARK_SEARCH_TRIGGER, type BookmarkSearchTrigger } from '../shared/constants';
+import { BOOKMARK_SEARCH_TRIGGER, DOWNLOAD_PREVIEW_FILE, type BookmarkSearchTrigger } from '../shared/constants';
 import { registerCommands, type CommandHandlers } from './commands';
 import { registerContextMenus } from './context-menu';
 
@@ -171,6 +171,23 @@ const handlers: CommandHandlers = { copy, paste, openBookmarks };
 
 registerCommands(handlers);
 registerContextMenus(handlers);
+
+chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
+  if (!message || typeof message !== 'object' || !('type' in message) || message.type !== DOWNLOAD_PREVIEW_FILE) return;
+  const url = 'url' in message && typeof message.url === 'string' ? URL.parse(message.url) : null;
+  // 跨域链接的 download 属性可能被忽略；仅处理扩展内容脚本发来的普通文件 URL。
+  if (sender.id !== chrome.runtime.id || sender.tab?.id === undefined || !url ||
+    (url.protocol !== 'https:' && url.protocol !== 'http:') || url.username || url.password) {
+    sendResponse({ ok: false });
+    return;
+  }
+  void chrome.downloads.download({ url: url.href }).then(
+    () => sendResponse({ ok: true }),
+    () => sendResponse({ ok: false }),
+  );
+  return true;
+});
+
 void chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch((error: unknown) => {
   console.error('[DevPilot] sidePanel:setup-failed', error);
 });
