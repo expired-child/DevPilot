@@ -1,3 +1,4 @@
+import type { BookClipAction, BookClipResult } from '../../modules/book-clip/types';
 import type {
   FieldAssignment,
   FillReport,
@@ -23,9 +24,11 @@ export type ContentRequest =
   | { type: 'SCAN_FORM'; scopeId?: string }
   | { type: 'LIST_FORM_CANDIDATES' }
   | { type: 'APPLY_FIELDS'; assignments: FieldAssignment[]; expectedTarget?: FormTargetSnapshot }
-  | { type: 'SHOW_TOAST'; message: string; tone?: 'success' | 'error' };
+  | { type: 'SHOW_TOAST'; message: string; tone?: 'success' | 'error' }
+  | ({ type: 'BOOK_CLIP' } & BookClipAction);
 
 export type ContentResponse =
+  | { ok: true; book: BookClipResult }
   | { ok: true; scan: FormScanResult; focused: boolean }
   | { ok: true; candidates: FormCandidateSummary[] }
   | { ok: true; report: FillReport }

@@ -24,6 +24,18 @@ h1, h2, p { margin: 0; }
 .brand-header p { margin-top: 2px; color: #63666f; font-size: 12px; }
 .eyebrow { display: block; margin-bottom: 6px; color: #6a6e78; font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 
+/* 网页成书的顶部导航；表单和书签页保留各自的布局。 */
+.app-header { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: start; gap: 12px 10px; margin-bottom: 18px; }
+.app-brand { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.app-brand-text { min-width: 0; }
+.app-brand-text h1 { font-size: 17px; line-height: 1.25; letter-spacing: -.02em; }
+.app-brand-text p { margin-top: 2px; color: #63666f; font-size: 11.5px; }
+.app-close { flex: none; }
+.module-nav { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; padding: 3px; border: 1px solid #e3e3de; border-radius: 12px; background: #ecece7; }
+.module-nav-item { min-height: 34px; padding: 7px 8px; border: 0; border-radius: 9px; color: #555964; background: transparent; font-size: 12.5px; font-weight: 650; transition: color .15s ease, background .15s ease, box-shadow .15s ease; }
+.module-nav-item:hover { color: #191b20; background: rgba(255,255,255,.6); }
+.module-nav-item[aria-current="page"] { color: #191b20; background: #fff; box-shadow: 0 1px 2px rgba(25,27,32,.1), 0 0 0 1px rgba(25,27,32,.03); }
+
 .current-section { margin-bottom: 24px; }
 .current-card, .empty-card, .detail-card, .preview-summary, .result-card { border: 1px solid #e8e8e3; border-radius: 16px; background: #fff; box-shadow: 0 6px 24px rgba(25,27,32,.055); }
 .current-card { padding: 16px; }
@@ -157,6 +169,11 @@ h1, h2, p { margin: 0; }
 .preview-summary strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
 .refresh-preview { display: block; margin: 8px 0 0 auto; }
 .input-section { display: grid; gap: 10px; margin-top: 20px; padding: 14px; border: 1px solid #e8e8e3; border-radius: 15px; background: #fff; box-shadow: 0 5px 20px rgba(25,27,32,.045); }
+.book-clip-panel { margin-top: 0; }
+.book-clip-options { display: grid; min-width: 0; gap: 10px; margin: 0; padding: 10px; border: 1px solid #8a8e97; border-radius: 10px; }
+.book-clip-options legend { padding: 0 4px; font-weight: 650; }
+.book-clip-chapters { display: grid; gap: 5px; max-height: 240px; overflow-y: auto; }
+.book-clip-chapters label { display: flex; align-items: baseline; gap: 6px; overflow-wrap: anywhere; }
 .inline-error { margin-top: 8px; padding: 9px 10px; border: 1px solid #f0d2d4; border-radius: 9px; color: #9c3b44; background: #f8e9ea; font-size: 11px; line-height: 1.5; }
 .diff-section { margin-top: 20px; }
 .stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 18px; }
@@ -195,6 +212,9 @@ h1, h2, p { margin: 0; }
 @media (prefers-color-scheme: dark) {
   :root { color-scheme: dark; color: #efefed; background: #16171a; }
   body { background: #16171a; }
+  .app-brand-text p, .module-nav-item { color: #b3b6bf; }
+  .module-nav { background: #202226; border-color: #30333a; }
+  .module-nav-item:hover, .module-nav-item[aria-current="page"] { color: #efefed; background: #2b2d32; }
   .current-card, .empty-card, .detail-card, .preview-summary, .result-card, .input-section, .history-item, .field-card, .diff-row, .global-replacement { background: #202226; border-color: #30333a; }
   .secondary-button, .small-button, .icon-button, .search-box, .stats div { color: #e6e6e2; background: #2b2d32; }
   .secondary-button.full { color: #e6e6e2; background: #2b2d32; }

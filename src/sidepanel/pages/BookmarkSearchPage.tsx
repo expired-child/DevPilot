@@ -10,6 +10,7 @@ import { BackIcon, CloseIcon, SearchIcon } from '../components/icons';
 interface Props {
   focusToken: number;
   onBack(): void;
+  onBookClip?(): void;
 }
 
 /** 导入或批量编辑会产生一连串事件；合并窗口内的变化只触发一次重载。 */
@@ -32,7 +33,7 @@ function BookmarkItem({ entry, active, onOpen }: { entry: BookmarkEntry; active:
   );
 }
 
-export function BookmarkSearchPage({ focusToken, onBack }: Props) {
+export function BookmarkSearchPage({ focusToken, onBack, onBookClip }: Props) {
   const [entries, setEntries] = useState<BookmarkEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -151,6 +152,7 @@ export function BookmarkSearchPage({ focusToken, onBack }: Props) {
       <header className="page-header">
         <button className="icon-button" onClick={onBack} aria-label="返回表单历史"><BackIcon /></button>
         <div><span className="eyebrow">书签搜索</span><h1>浏览器书签</h1></div>
+        {onBookClip && <button type="button" className="small-button" onClick={onBookClip}>网页成书</button>}
         <button className="icon-button bookmark-close" onClick={() => void closePanel()} aria-label="关闭书签搜索侧栏" title="关闭侧栏（Esc）"><CloseIcon /></button>
       </header>
 

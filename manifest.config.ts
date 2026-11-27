@@ -9,15 +9,24 @@ const formContentScript = {
   run_at: 'document_idle' as const,
 };
 
+const icons = {
+  16: 'icons/icon-16.png',
+  32: 'icons/icon-32.png',
+  48: 'icons/icon-48.png',
+  128: 'icons/icon-128.png',
+};
+
 export default defineManifest({
   manifest_version: 3,
   name: 'DevPilot',
-  description: '面向开发者的浏览器效率工具，首个模块为表单剪贴板。',
+  description: '面向开发者的浏览器效率工具，支持表单剪贴板、书签搜索、网页文件预览和网页成书。',
   version: '0.1.9',
   minimum_chrome_version: '141',
   permissions: ['activeTab', 'bookmarks', 'contextMenus', 'downloads', 'sidePanel', 'storage', 'webNavigation'],
+  icons,
   action: {
     default_title: '打开 DevPilot 侧栏',
+    default_icon: icons,
   },
   background: {
     service_worker: 'src/background/service-worker.ts',

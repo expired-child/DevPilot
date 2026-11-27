@@ -2,6 +2,7 @@ import { useMemo, useRef, useState } from 'react';
 
 import { searchHistory } from '../../modules/form-clipboard/clipboard-service';
 import type { FormClipboardItem, FormClipboardState, ReplacementRule } from '../../modules/form-clipboard/clipboard-types';
+import type { AppModule } from '../components/AppHeader';
 import { ChevronRightIcon, CloseIcon, SearchIcon } from '../components/icons';
 import { GlobalReplacementSettings } from './GlobalReplacementSettings';
 
@@ -10,7 +11,7 @@ interface Props {
   onCopy(): void;
   onPaste(item: FormClipboardItem): void;
   onDetail(item: FormClipboardItem): void;
-  onBookmarks(): void;
+  onSelectModule(module: AppModule): void;
   onClear(): Promise<void>;
   replacementPending: boolean;
   onReplacementToggle(enabled: boolean): Promise<void>;
@@ -57,7 +58,7 @@ function HistoryItem({ item, current, onPaste, onDetail }: { item: FormClipboard
   );
 }
 
-export function ClipboardPage({ state, onCopy, onPaste, onDetail, onBookmarks, onClear, replacementPending, onReplacementToggle, replacementDraft, replacementDraftConflict, onReplacementDraftChange, onReplacementDraftRebase, onSaveReplacementRules }: Props) {
+export function ClipboardPage({ state, onCopy, onPaste, onDetail, onSelectModule, onClear, replacementPending, onReplacementToggle, replacementDraft, replacementDraftConflict, onReplacementDraftChange, onReplacementDraftRebase, onSaveReplacementRules }: Props) {
   const [query, setQuery] = useState('');
   const searchRef = useRef<HTMLInputElement>(null);
   const current = state.history.find((item) => item.id === state.currentId);
@@ -70,8 +71,12 @@ export function ClipboardPage({ state, onCopy, onPaste, onDetail, onBookmarks, o
         <div><h1>DevPilot</h1><p>表单剪贴板</p></div>
       </header>
 
-      <button className="secondary-button full bookmark-entry" onClick={onBookmarks}>
+      <button type="button" className="secondary-button full bookmark-entry" onClick={() => onSelectModule('bookmarks')}>
         <span className="bookmark-entry-label"><SearchIcon /><span>书签搜索</span></span>
+        <ChevronRightIcon className="bookmark-entry-chevron" />
+      </button>
+      <button type="button" className="secondary-button full bookmark-entry" onClick={() => onSelectModule('book-clip')}>
+        <span>网页成书</span>
         <ChevronRightIcon className="bookmark-entry-chevron" />
       </button>
 

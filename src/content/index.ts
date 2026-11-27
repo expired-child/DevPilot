@@ -3,9 +3,35 @@ import { listFormCandidates, isFocusedScannedForm, scanForm } from './scanner/fo
 import { scopeElement } from './scanner/scope-registry';
 import { registerPageShortcuts } from './shortcut';
 import { registerFilePreview } from './file-preview';
+import { webUrl, type BookClipAction, type BookClipResult } from '../modules/book-clip/types';
 import type { ContentRequest, ContentResponse } from '../shared/messaging/messages';
 
 let filling = false;
+let bookImages: { pageUrl: string; urls: Set<string> } | undefined;
+
+async function handleBookClip(request: BookClipAction): Promise<BookClipResult> {
+  const current = webUrl(location.href);
+  if (window !== window.top || !current || (request.action !== 'scan' && request.origin !== current.origin)) {
+    throw new Error('网页已切换或不是普通网页，请重新扫描。');
+  }
+  if (request.action === 'image') {
+    if (bookImages?.pageUrl !== current.href || request.pageUrl !== current.href || !bookImages.urls.has(request.url)) {
+      throw new Error('图片不属于刚采集的页面');
+    }
+    const { readBookImage } = await import('./book-clip-image');
+    return { image: await readBookImage(request.url) };
+  }
+  const { scanBook, readBookPage, jumpBookChapter } = await import('./book-clip');
+  if (request.action === 'scan') {
+    const scan = await scanBook(document, current.href);
+    if (location.href !== current.href) throw new Error('扫描期间已切换网页，请重新扫描。');
+    return { scan };
+  }
+  if (request.action === 'jump') return { jumped: jumpBookChapter(request.chapter) };
+  const page = readBookPage();
+  bookImages = { pageUrl: page.url, urls: new Set(page.images.map(({ url }) => url)) };
+  return { page };
+}
 
 const showToast = (message: string, tone: 'success' | 'error' = 'success'): void => {
   document.getElementById('devpilot-toast')?.remove();
@@ -29,7 +55,7 @@ const showToast = (message: string, tone: 'success' | 'error' = 'success'): void
   window.setTimeout(() => toast.remove(), 3200);
 };
 
-const handleRequest = async (request: ContentRequest): Promise<ContentResponse> => {
+const handleRequest = async (request: Exclude<ContentRequest, { type: 'BOOK_CLIP' }>): Promise<ContentResponse> => {
   try {
     if (request.type === 'SCAN_FORM') {
       if (request.scopeId) {
@@ -61,7 +87,15 @@ const handleRequest = async (request: ContentRequest): Promise<ContentResponse> 
   }
 };
 
-chrome.runtime.onMessage.addListener((request: ContentRequest, _sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((request: ContentRequest, sender, sendResponse) => {
+  if (request.type === 'BOOK_CLIP') {
+    if (sender.id !== chrome.runtime.id || sender.tab || sender.url !== chrome.runtime.getURL('sidepanel.html')) return false;
+    void handleBookClip(request).then(
+      book => sendResponse({ ok: true, book }),
+      error => sendResponse({ ok: false, error: error instanceof Error ? error.message : '无法采集网页' }),
+    );
+    return true;
+  }
   void handleRequest(request).then(sendResponse);
   return true;
 });

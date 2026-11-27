@@ -26,6 +26,8 @@ import {
 import { sendClipboardCommand, type ClipboardCommand, type ClipboardCommandResult } from '../shared/messaging/clipboard-commands';
 import { BOOKMARK_SEARCH_TRIGGER, type BookmarkSearchTrigger } from '../shared/constants';
 import { currentWindowId, loadGlobalDraft, sameRules, saveGlobalDraft } from './global-draft-store';
+import type { AppModule } from './components/AppHeader';
+import { BookClipPage } from './pages/BookClipPage';
 import { BookmarkSearchPage } from './pages/BookmarkSearchPage';
 import { ClipboardDetailPage } from './pages/ClipboardDetailPage';
 import { ClipboardPage } from './pages/ClipboardPage';
@@ -35,6 +37,7 @@ import { PastePreviewPage } from './pages/PastePreviewPage';
 type View =
   | { page: 'list' }
   | { page: 'bookmarks' }
+  | { page: 'book-clip' }
   | { page: 'detail'; itemId: string }
   | { page: 'candidates'; intent: 'copy'; tabId: number }
   | { page: 'candidates'; intent: 'preview'; itemId: string; tabId: number }
@@ -221,11 +224,11 @@ export function App() {
   }, [notice]);
 
   const item = useMemo(() => {
-    if (!state || view.page === 'list' || view.page === 'bookmarks' || view.page === 'candidates') return null;
+    if (!state || (view.page !== 'detail' && view.page !== 'preview')) return null;
     return state.history.find((entry) => entry.id === view.itemId) ?? null;
   }, [state, view]);
 
-  if (!state && view.page !== 'bookmarks' && view.page !== 'candidates') {
+  if (!state && view.page !== 'bookmarks' && view.page !== 'candidates' && view.page !== 'book-clip') {
     return <div className="loading">正在打开 DevPilot…</div>;
   }
 
@@ -326,6 +329,11 @@ export function App() {
     }
   };
 
+  const selectModule = (module: AppModule): void => {
+    if (module === 'bookmarks') openBookmarks();
+    else setView({ page: module === 'forms' ? 'list' : 'book-clip' });
+  };
+
   return (
     <main className="app-shell">
       {notice && <div className={`notice ${notice.tone}`} role={notice.tone === 'error' ? 'alert' : 'status'}>{notice.text}</div>}
@@ -364,7 +372,7 @@ export function App() {
           onCopy={() => void copyCurrent()}
           onPaste={(entry) => void startPaste(entry).catch(showError)}
           onDetail={(entry) => setView({ page: 'detail', itemId: entry.id })}
-          onBookmarks={openBookmarks}
+          onSelectModule={selectModule}
           onClear={async () => {
             await submitCommand({ type: 'CLEAR_HISTORY' });
             await reload();
@@ -376,8 +384,9 @@ export function App() {
         />
       )}
       {view.page === 'bookmarks' && (
-        <BookmarkSearchPage focusToken={bookmarkFocusToken} onBack={() => setView({ page: 'list' })} />
+        <BookmarkSearchPage focusToken={bookmarkFocusToken} onBack={() => setView({ page: 'list' })} onBookClip={() => selectModule('book-clip')} />
       )}
+      {view.page === 'book-clip' && <BookClipPage onSelect={selectModule} />}
       {view.page === 'candidates' && (
         <FormCandidatesPage
           candidates={candidates}
