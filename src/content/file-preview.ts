@@ -3,7 +3,8 @@ import styles from './file-preview.css?inline';
 
 const IMAGE_EXTENSIONS = /\.(?:apng|avif|bmp|gif|ico|jpe?g|png|svg|webp)$/i;
 const VIDEO_EXTENSIONS = /\.(?:m4v|mov|mp4|ogv|webm)$/i;
-const TEXT_EXTENSIONS = /\.(?:txt|md|rst|log|csv|tsv|sql|json|jsonc|xml|ya?ml|toml|ini|conf|properties|diff|patch|java|kt|kts|js|mjs|cjs|jsx|ts|tsx|css|scss|less|vue|svelte|py|rb|go|rs|c|h|cpp|hpp|cs|swift|sh|bash|zsh|ps1|gradle|proto)$/i;
+const PLAIN_TEXT_EXTENSIONS = /\.(?:txt|rst|log|csv|tsv|conf|ps1|gradle|proto)$/i;
+const SOURCE_EXTENSIONS = /\.(?:sql|jsonc?|xml|ya?ml|toml|ini|properties|diff|patch|md|java|kt|kts|js|mjs|cjs|jsx|ts|tsx|css|scss|less|vue|svelte|py|rb|go|rs|c|h|cpp|hpp|cs|swift|sh|bash|zsh)$/i;
 const WEB_SOURCE_EXTENSIONS = /\.(?:html?|php|aspx?|jsp)$/i;
 const BINARY_EXTENSIONS = /\.(?:exe|msi|msix|msixbundle|appx|appxbundle|apk|aab|ipa|dmg|pkg|deb|rpm|appimage|run|iso|img|vhdx?|vmdk|qcow2?|bin|zip|rar|7z|tar|gz|xz|bz2|zst|cab|jar|crx|scr|com)$/i;
 const MAX_PREVIEW_BYTES = 512 * 1024;
@@ -13,7 +14,8 @@ type PreviewKind = 'image' | 'video' | 'text';
 const previewKind = (name: string, explicitName: boolean): PreviewKind | undefined => {
   if (IMAGE_EXTENSIONS.test(name)) return 'image';
   if (VIDEO_EXTENSIONS.test(name)) return 'video';
-  if (TEXT_EXTENSIONS.test(name) || (explicitName && WEB_SOURCE_EXTENSIONS.test(name))) return 'text';
+  if (PLAIN_TEXT_EXTENSIONS.test(name) || SOURCE_EXTENSIONS.test(name) ||
+    (explicitName && WEB_SOURCE_EXTENSIONS.test(name))) return 'text';
 };
 
 const fileNameFromPath = (url: URL): string => {
@@ -145,11 +147,15 @@ const showFilePreview = (link: HTMLAnchorElement, url: URL, fileName: string, ki
     }
     const code = document.createElement('pre');
     code.tabIndex = 0;
-    // 源码、SQL 和标记文件都只作为文本显示。
     code.textContent = text;
     body.prepend(code);
     status.hidden = !truncated;
     status.textContent = truncated ? '已显示文件开头的 512 KB，下载可查看完整内容。' : '';
+    if (!PLAIN_TEXT_EXTENSIONS.test(fileName)) {
+      void import('./file-preview-highlight').then(({ highlightPreview }) => {
+        if (!controller.signal.aborted) highlightPreview(code, fileName, text);
+      }).catch(() => { /* 高亮不可用时保留原文，不影响下载。 */ });
+    }
   }).catch(() => {
     if (!controller.signal.aborted) status.textContent = '无法加载预览，你仍可下载文件。';
   });

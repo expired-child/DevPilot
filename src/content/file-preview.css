@@ -33,6 +33,21 @@ pre {
   font: 13px/1.6 ui-monospace, Consolas, monospace;
   tab-size: 4;
 }
+.syntax-preview {
+  color-scheme: dark;
+  padding: 12px;
+  border-radius: 8px;
+  color: #d4d4d4;
+  background: #1e1e20;
+}
+.syntax-preview :is(.hljs-keyword, .hljs-selector-tag, .hljs-doctag) { color: #ffab83; }
+.syntax-preview :is(.hljs-type, .hljs-built_in, .hljs-name) { color: #7fd9ef; }
+.syntax-preview :is(.hljs-string, .hljs-regexp, .hljs-addition) { color: #a5d68c; }
+.syntax-preview :is(.hljs-comment, .hljs-quote) { color: #a1a6af; }
+.syntax-preview :is(.hljs-number, .hljs-literal) { color: #f5cf82; }
+.syntax-preview :is(.hljs-symbol, .hljs-variable, .hljs-attr, .hljs-attribute) { color: #f0aada; }
+.syntax-preview :is(.hljs-title, .hljs-section, .hljs-selector-class) { color: #a8bbff; }
+.syntax-preview :is(.hljs-meta, .hljs-deletion) { color: #ffa2a2; }
 footer { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; border-top: 1px solid #e8e8e3; }
 button { border: 0; border-radius: 8px; padding: 7px 13px; color: #262932; background: #eaeae6; font: inherit; cursor: pointer; }
 button.primary { color: #fff; background: #1f232c; }

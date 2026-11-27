@@ -29,11 +29,17 @@ try {
     path: `dist/${new URL(route.request().url()).pathname.slice('/extension/'.length)}`,
     contentType: 'text/javascript',
   }));
-  const source = "SELECT '<script>throw new Error(1)</script>';";
+  const source = "-- 示例\nCREATE TABLE `demo` (`id` BIGINT NOT NULL AUTO_INCREMENT, `start` DATETIME, `name` VARCHAR(20) DEFAULT '<script>throw new Error(1)</script>');";
+  const javaSource = 'public class Demo { private String name = "示例"; }';
+  const plainSource = 'CREATE TABLE\n这是一段普通文本';
+  const longSource = `SELECT 1;\n${' '.repeat(100_000)}DROP TABLE demo;`;
   await context.route(`${site}/`, (route) => route.fulfill({
     contentType: 'text/html; charset=utf-8',
     body: `
       <a href="/files/migration.SQL">查看 SQL</a>
+      <a href="/files/Demo.java">查看 Java</a>
+      <a href="/files/notes.txt">查看文本</a>
+      <a href="/files/long.sql">查看大文件</a>
       <a href="/files/photo.png?signature=token" download><span>查看图片</span></a>
       <a href="/api/file?id=42&amp;fileName=clip.webm" download>查看视频</a>
       <a href="/api/file?id=43" download="missing.webm">失效附件</a>
@@ -47,6 +53,10 @@ try {
     headers: { 'content-disposition': 'attachment; filename="migration.SQL"' },
     body: source,
   }));
+
+  await context.route(`${site}/files/Demo.java`, (route) => route.fulfill({ contentType: 'text/plain', body: javaSource }));
+  await context.route(`${site}/files/notes.txt`, (route) => route.fulfill({ contentType: 'text/plain', body: plainSource }));
+  await context.route(`${site}/files/long.sql`, (route) => route.fulfill({ contentType: 'text/plain', body: longSource }));
 
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aZ1sAAAAASUVORK5CYII=', 'base64');
   await context.route(`${site}/files/photo.png?**`, (route) => route.fulfill({
@@ -74,14 +84,54 @@ try {
   await page.waitForFunction(() => globalThis.devpilotReady, undefined, { timeout: 5000 });
   await page.getByRole('link', { name: '查看 SQL' }).click({ noWaitAfter: true, timeout: 5000 });
   const preview = page.getByRole('dialog', { name: 'migration.SQL' });
-  await preview.getByText(source, { exact: true }).waitFor({ timeout: 5000 });
+  const sql = preview.locator('pre');
+  await sql.waitFor();
+  assert.equal(await sql.textContent(), source);
+  const tokenColor = async (code, pattern) => {
+    const token = code.locator('span').filter({ hasText: pattern }).first();
+    await token.waitFor();
+    return token.evaluate((element) => globalThis.getComputedStyle(element).color);
+  };
+  const colors = await Promise.all([/^CREATE TABLE$/, /^DATETIME$/, /^20$/, /^-- 示例$/, /^'<script>/, /^`id`$/]
+    .map((pattern) => tokenColor(sql, pattern)));
+  assert.equal(new Set(colors).size, colors.length);
+  assert.equal(await tokenColor(sql, /^AUTO_INCREMENT$/), colors[0]);
+  assert.equal(await tokenColor(sql, /^BIGINT$/), colors[1]);
+  assert.equal(await sql.locator('script').count(), 0);
+  assert.equal(await sql.textContent(), source);
   assert.equal(downloads.length, 0);
   assert.equal(page.url(), `${site}/`);
   const saved = page.waitForEvent('download');
   await preview.getByRole('button', { name: '下载文件' }).click();
-  assert.equal((await saved).suggestedFilename(), 'migration.SQL');
+  const attachment = await saved;
+  assert.equal(attachment.suggestedFilename(), 'migration.SQL');
+  assert.equal(attachment.url(), `${site}/files/migration.SQL`);
   await page.keyboard.press('Escape');
   await preview.waitFor({ state: 'detached' });
+
+  await page.getByRole('link', { name: '查看 Java' }).click();
+  const java = page.getByRole('dialog', { name: 'Demo.java' });
+  const javaCode = java.locator('pre');
+  assert.notEqual(await tokenColor(javaCode, /^public$/), await tokenColor(javaCode, /^"示例"$/));
+  assert.equal(await javaCode.textContent(), javaSource);
+  await java.getByRole('button', { name: '关闭' }).click();
+
+  await page.getByRole('link', { name: '查看文本' }).click();
+  const notes = page.getByRole('dialog', { name: 'notes.txt' });
+  const plain = notes.locator('pre');
+  await plain.waitFor();
+  assert.equal(await plain.textContent(), plainSource);
+  assert.equal(await plain.locator('span').count(), 0);
+  await notes.getByRole('button', { name: '关闭' }).click();
+
+  await page.getByRole('link', { name: '查看大文件' }).click();
+  const long = page.getByRole('dialog', { name: 'long.sql' });
+  const longCode = long.locator('pre');
+  await tokenColor(longCode, /^SELECT$/);
+  assert.equal(await longCode.locator('span').filter({ hasText: /DROP/ }).count(), 0);
+  assert.equal(await longCode.textContent(), longSource);
+  await long.getByRole('button', { name: '关闭' }).click();
+
   await page.getByRole('link', { name: '查看图片' }).click({ noWaitAfter: true });
   const photo = page.getByRole('dialog', { name: 'photo.png' });
   await photo.getByRole('img', { name: 'photo.png' }).waitFor();
